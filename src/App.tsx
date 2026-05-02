@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 type DemoSlide = {
   id: string;
   title: string;
-  subtitle: string;
+  annotation: string;
+  mediaType: 'image' | 'video';
   image: string;
-  accent: string;
 };
 
 type EagleImage = {
@@ -15,6 +15,8 @@ type EagleImage = {
   width: number | null;
   height: number | null;
   url: string;
+  annotation: string;
+  mediaType: 'image' | 'video';
   src: string;
 };
 
@@ -26,91 +28,247 @@ type EagleImagesResponse = {
 type Slide = {
   id: string;
   title: string;
-  subtitle: string;
+  annotation: string;
   image: string;
-  accent: string;
+  mediaType: 'image' | 'video';
 };
 
 const demoSlides: DemoSlide[] = [
   {
     id: 'aurora',
-    title: '夜色画廊',
-    subtitle: '在确认应用设置之前，这里会先保留示例画面。',
+    title: 'Aurora',
+    annotation: '夜色、薄雾与缓慢轮播的画面更适合长时间展示。',
+    mediaType: 'image',
     image:
-      'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1800&q=80',
-    accent: 'rgba(202, 210, 224, 0.92)'
+      'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1800&q=80'
   },
   {
     id: 'city',
-    title: '灰黑夜间风格',
-    subtitle: '只保留简介区和图片区，让画面更安静、更适合长期展示。',
+    title: 'City',
+    annotation: '当真实图片尚未载入时，这里会先保留示例图与说明文字。',
+    mediaType: 'image',
     image:
-      'https://images.unsplash.com/photo-1493246507139-91e8fad9978e?auto=format&fit=crop&w=1800&q=80',
-    accent: 'rgba(168, 177, 191, 0.92)'
+      'https://images.unsplash.com/photo-1493246507139-91e8fad9978e?auto=format&fit=crop&w=1800&q=80'
   },
   {
     id: 'studio',
-    title: '确认后再加载',
-    subtitle: '设置面板中只需要指定 Eagle 库路径，确认应用后就会轮播整个库中的图片。',
+    title: 'Studio',
+    annotation: '如果图片在 Eagle 中写了注释，这里会优先显示注释而不是图片名字。',
+    mediaType: 'image',
     image:
-      'https://images.unsplash.com/photo-1519608487953-e999c86e7455?auto=format&fit=crop&w=1800&q=80',
-    accent: 'rgba(150, 161, 176, 0.92)'
+      'https://images.unsplash.com/photo-1519608487953-e999c86e7455?auto=format&fit=crop&w=1800&q=80'
   }
 ];
 
+const AUTO_REFRESH_MS = 15000;
 const DEFAULT_LIBRARY_PATH = 'D:\\OneDrive\\参考\\李杰.library';
-const ROTATE_MS = 8000;
+const DEFAULT_ROTATE_SECONDS = 8;
+const DEFAULT_SHOW_CLOCK = true;
 const PATH_STORAGE_KEY = 'gallery-drift.eagle-library-path';
+const DURATION_STORAGE_KEY = 'gallery-drift.slide-duration-seconds';
+const CLOCK_STORAGE_KEY = 'gallery-drift.show-clock';
+
+function clampDurationSeconds(value: number) {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_ROTATE_SECONDS;
+  }
+
+  return Math.min(3600, Math.max(2, Math.round(value)));
+}
+
+function shuffleSlides(items: Slide[]) {
+  return [...items]
+    .map((item) => ({ item, sort: Math.random() }))
+    .sort((a, b) => a.sort - b.sort)
+    .map(({ item }) => item);
+}
 
 function buildSlides(images: EagleImage[]): Slide[] {
-  return images.map((image) => ({
-    id: image.id,
-    title: image.name,
-    subtitle: image.url || '来自 Eagle 库中的本地素材',
-    image: image.src,
-    accent: 'rgba(168, 177, 191, 0.92)'
-  }));
+  return shuffleSlides(
+    images.map((image) => ({
+      id: image.id,
+      title: image.name?.trim() || '未命名图片',
+      annotation: image.annotation.trim(),
+      mediaType: image.mediaType,
+      image: image.src
+    }))
+  );
 }
 
 export default function App() {
   const initialLibraryPath = localStorage.getItem(PATH_STORAGE_KEY) || DEFAULT_LIBRARY_PATH;
+  const initialDurationSeconds = clampDurationSeconds(Number(localStorage.getItem(DURATION_STORAGE_KEY)) || DEFAULT_ROTATE_SECONDS);
+  const initialShowClock = localStorage.getItem(CLOCK_STORAGE_KEY);
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [slides, setSlides] = useState<Slide[]>(demoSlides);
-  const [statusText, setStatusText] = useState('请先点击右上角“设置”，输入 Eagle 库路径，然后确认应用。');
+  const [isPaused, setIsPaused] = useState(false);
+  const [isVideoHold, setIsVideoHold] = useState(false);
+  const [lastLibrarySignature, setLastLibrarySignature] = useState('');
+  const [statusText, setStatusText] = useState('右键打开菜单，选择“设置”后输入 Eagle 库路径。');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [usingDemoSlides, setUsingDemoSlides] = useState(true);
 
   const [appliedLibraryPath, setAppliedLibraryPath] = useState(initialLibraryPath);
-  const [loadVersion, setLoadVersion] = useState(0);
+  const [loadVersion, setLoadVersion] = useState(1);
 
   const [draftLibraryPath, setDraftLibraryPath] = useState(initialLibraryPath);
+  const [slideDurationSeconds, setSlideDurationSeconds] = useState(initialDurationSeconds);
+  const [showClock, setShowClock] = useState(initialShowClock === null ? DEFAULT_SHOW_CLOCK : initialShowClock === 'true');
+  const [clockText, setClockText] = useState('');
+  const [clockAngles, setClockAngles] = useState({ hour: 0, minute: 0 });
+  const [draftSlideDurationSeconds, setDraftSlideDurationSeconds] = useState(String(initialDurationSeconds));
+  const [draftShowClock, setDraftShowClock] = useState(initialShowClock === null ? DEFAULT_SHOW_CLOCK : initialShowClock === 'true');
   const [isApplying, setIsApplying] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState('请输入 Eagle 库路径，确认后将轮播整个库中的图片。');
+  const rotateMs = slideDurationSeconds * 1000;
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  const goToNextSlide = () => {
+    setActiveIndex((current) => (current + 1) % slides.length);
+  };
+
+  const goToPreviousSlide = () => {
+    setActiveIndex((current) => (current - 1 + slides.length) % slides.length);
+  };
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      setActiveIndex((current) => (current + 1) % slides.length);
-    }, ROTATE_MS);
-
-    return () => window.clearInterval(timer);
-  }, [slides.length]);
-
-  useEffect(() => {
-    if (!appliedLibraryPath || loadVersion === 0) {
+    const activeSlide = slides[activeIndex];
+    if (isPaused || !activeSlide || activeSlide.mediaType === 'video') {
       return;
     }
 
-    const fetchImages = async () => {
-      setIsApplying(true);
-      setStatusText('正在加载整个 Eagle 库中的真实图片…');
+    const timer = window.setInterval(() => {
+      goToNextSlide();
+    }, rotateMs);
+
+    return () => window.clearInterval(timer);
+  }, [activeIndex, isPaused, rotateMs, slides]);
+
+
+  useEffect(() => {
+    const updateClock = () => {
+      const now = new Date();
+      const formatter = new Intl.DateTimeFormat('zh-CN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
+      const hours = now.getHours() % 12;
+      const minutes = now.getMinutes();
+      setClockText(formatter.format(now));
+      setClockAngles({
+        hour: hours * 30 + minutes * 0.5,
+        minute: minutes * 6
+      });
+    };
+
+    updateClock();
+    const timer = window.setInterval(updateClock, 10000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (key === 'a') {
+        event.preventDefault();
+        goToPreviousSlide();
+      } else if (key === 'd') {
+        event.preventDefault();
+        goToNextSlide();
+      } else if (key === 's') {
+        event.preventDefault();
+        if ((slides[activeIndex] ?? demoSlides[0]).mediaType === 'video') {
+          setIsVideoHold((current) => !current);
+        } else {
+          setIsPaused((current) => !current);
+        }
+      } else if (key === 'delete') {
+        event.preventDefault();
+        const currentSlide = slides[activeIndex] ?? demoSlides[0];
+        if (!currentSlide || !appliedLibraryPath || usingDemoSlides) {
+          return;
+        }
+
+        void window.galleryDrift?.deleteItem(appliedLibraryPath, currentSlide.id).then(() => {
+          setLoadVersion((current) => current + 1);
+        });
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeIndex, slides]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    const currentSlide = slides[activeIndex] ?? demoSlides[0];
+    if (!video || currentSlide.mediaType !== 'video') {
+      return;
+    }
+
+    video.loop = isVideoHold;
+    void video.play().catch(() => undefined);
+  }, [activeIndex, isVideoHold, slides]);
+
+  useEffect(() => {
+    const currentSlide = slides[activeIndex] ?? demoSlides[0];
+    if (currentSlide.mediaType !== 'video' && isVideoHold) {
+      setIsVideoHold(false);
+    }
+  }, [activeIndex, isVideoHold, slides]);
+
+  useEffect(() => {
+    const dispose = window.galleryDrift?.onOpenSettings(() => {
+      setDraftLibraryPath(appliedLibraryPath || initialLibraryPath);
+      setDraftSlideDurationSeconds(String(slideDurationSeconds));
+      setDraftShowClock(showClock);
+      setSettingsMessage('请输入 Eagle 库路径，并设置每张图片停留时间。');
+      setIsSettingsOpen(true);
+    });
+
+    return () => {
+      dispose?.();
+    };
+  }, [appliedLibraryPath, initialLibraryPath, showClock, slideDurationSeconds]);
+
+  useEffect(() => {
+    if (!appliedLibraryPath) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    const fetchImages = async (isBackgroundRefresh = false) => {
+      if (!isBackgroundRefresh) {
+        setIsApplying(true);
+        setStatusText('正在加载整个 Eagle 库中的真实图片…');
+      }
 
       try {
-        const response = await fetch(`/api/eagle/images?libraryPath=${encodeURIComponent(appliedLibraryPath)}`);
-        const data = (await response.json()) as EagleImagesResponse;
+        const data = window.galleryDrift?.loadImages
+          ? await window.galleryDrift.loadImages(appliedLibraryPath)
+          : await fetch(`/api/eagle/images?libraryPath=${encodeURIComponent(appliedLibraryPath)}`).then(async (response) => {
+              const payload = (await response.json()) as EagleImagesResponse;
+              if (!response.ok) {
+                throw new Error(payload.error || '读取 Eagle 图片失败。');
+              }
 
-        if (!response.ok || data.error) {
+              return payload;
+            });
+
+        if (data.error) {
           throw new Error(data.error || '读取 Eagle 图片失败。');
+        }
+
+        if (isCancelled) {
+          return;
         }
 
         const images = data.images ?? [];
@@ -118,7 +276,13 @@ export default function App() {
           setSlides(demoSlides);
           setUsingDemoSlides(true);
           setActiveIndex(0);
+          setLastLibrarySignature('');
           setStatusText('当前库里没有可展示图片，当前显示示例图片。');
+          return;
+        }
+
+        const signature = images.map((image) => image.id).sort().join('|');
+        if (isBackgroundRefresh && signature === lastLibrarySignature) {
           return;
         }
 
@@ -127,34 +291,51 @@ export default function App() {
         setSlides(nextSlides);
         setUsingDemoSlides(false);
         setActiveIndex(0);
-        setStatusText(`已加载整个库中的真实图片，共 ${images.length} 张（已自动排除缩略图）。`);
+        setLastLibrarySignature(signature);
+        setStatusText(
+          isBackgroundRefresh
+            ? `图片库已自动刷新，共 ${images.length} 张。`
+            : `已加载整个库中的真实图片，共 ${images.length} 张（已自动排除缩略图）。`
+        );
       } catch (error) {
+        if (isCancelled) {
+          return;
+        }
+
         setSlides(demoSlides);
         setUsingDemoSlides(true);
         setActiveIndex(0);
+        setLastLibrarySignature('');
         setStatusText(error instanceof Error ? `真实图片加载失败：${error.message}` : '真实图片加载失败。');
       } finally {
-        setIsApplying(false);
+        if (!isCancelled && !isBackgroundRefresh) {
+          setIsApplying(false);
+        }
       }
     };
 
-    void fetchImages();
-  }, [appliedLibraryPath, loadVersion]);
+    void fetchImages(false);
+    const refreshTimer = window.setInterval(() => {
+      void fetchImages(true);
+    }, AUTO_REFRESH_MS);
+
+    return () => {
+      isCancelled = true;
+      window.clearInterval(refreshTimer);
+    };
+  }, [appliedLibraryPath, lastLibrarySignature, loadVersion]);
 
   const activeSlide = slides[activeIndex] ?? demoSlides[0];
+  const hasAnnotation = Boolean(activeSlide.annotation.trim());
+  const isVideoActive = activeSlide.mediaType === 'video';
+  const showPausedBadge = isVideoActive ? isVideoHold : isPaused;
 
   const progressStyle = useMemo(
     () => ({
-      animationDuration: `${ROTATE_MS}ms`
+      animationDuration: `${rotateMs}ms`
     }),
-    []
+    [rotateMs]
   );
-
-  const openSettings = () => {
-    setDraftLibraryPath(appliedLibraryPath || initialLibraryPath);
-    setSettingsMessage('请输入 Eagle 库路径，确认后将轮播整个库中的图片。');
-    setIsSettingsOpen(true);
-  };
 
   const closeSettings = () => {
     setIsSettingsOpen(false);
@@ -167,58 +348,80 @@ export default function App() {
       return;
     }
 
+    const nextDurationSeconds = clampDurationSeconds(Number(draftSlideDurationSeconds));
+
     setAppliedLibraryPath(nextPath);
+    setSlideDurationSeconds(nextDurationSeconds);
+    setShowClock(draftShowClock);
     setLoadVersion((current) => current + 1);
     localStorage.setItem(PATH_STORAGE_KEY, nextPath);
+    localStorage.setItem(DURATION_STORAGE_KEY, String(nextDurationSeconds));
+    localStorage.setItem(CLOCK_STORAGE_KEY, String(draftShowClock));
     setStatusText('设置已确认，正在重新加载整个库中的真实图片…');
     setIsSettingsOpen(false);
   };
 
   return (
     <main className="app-shell">
-      <header className="topbar">
-        <div className="brand-mark">Gallery Drift</div>
-        <button className="settings-trigger" onClick={openSettings}>
-          设置
-        </button>
+      <header className="titlebar" aria-hidden="true">
+        <div className="titlebar-drag-region" />
       </header>
 
-      <section className="content-panel">
-        <section className="intro-panel">
-          <p className="eyebrow" style={{ color: activeSlide.accent }}>
-            Gallery Drift
-          </p>
-          <h1>{activeSlide.title}</h1>
-          <p className="subtitle">{activeSlide.subtitle}</p>
-          <div className="status-card">
-            <p className="status-label">当前状态</p>
-            <p className="status-text">{statusText}</p>
-          </div>
-          <div className="meta-row">
-            <span>{isApplying ? '加载中' : usingDemoSlides ? '示例图' : '真实图片'}</span>
-            <span className="meta-dot" />
-            <span>
-              {String(activeIndex + 1).padStart(2, '0')} / {String(slides.length).padStart(2, '0')}
-            </span>
-          </div>
-          <div className="progress-wrap">
-            <div key={activeSlide.id} className="progress-bar" style={progressStyle} />
-          </div>
-        </section>
-
+      <section className="content-panel no-annotation">
         <section className="gallery-panel">
           <div className="image-frame">
             {slides.map((slide, index) => (
-              <div
-                key={slide.id}
-                className={`stage-image ${index === activeIndex ? 'is-active' : ''}`}
-                style={{ backgroundImage: `url(${slide.image})` }}
-              />
+              <div key={slide.id} className={`slide-layer ${index === activeIndex ? 'is-active' : ''}`}>
+                {slide.mediaType === 'video' ? (
+                  <>
+                    <video
+                      className="stage-backdrop-video"
+                      src={slide.image}
+                      muted
+                      loop
+                      autoPlay={index === activeIndex}
+                      playsInline
+                    />
+                    <video
+                      ref={index === activeIndex ? videoRef : undefined}
+                      className="stage-video"
+                      src={slide.image}
+                      muted
+                      autoPlay={index === activeIndex}
+                      playsInline
+                      onEnded={goToNextSlide}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <div className="stage-backdrop" style={{ backgroundImage: `url(${slide.image})` }} />
+                    <div className="stage-image" style={{ backgroundImage: `url(${slide.image})` }} />
+                  </>
+                )}
+              </div>
             ))}
             <div className="image-overlay" />
+            {showPausedBadge ? <div className="playback-badge">Ⅱ</div> : null}
+            <div className="image-caption">
+              <div className="image-title">{activeSlide.title}</div>
+              {hasAnnotation ? <div className="image-annotation">{activeSlide.annotation}</div> : null}
+            </div>
+            {showClock ? (
+              <div className="image-clock" aria-label={clockText}>
+                <div className="clock-face">
+                  <div className="clock-hand clock-hand-hour" style={{ transform: `translateX(-50%) rotate(${clockAngles.hour}deg)` }} />
+                  <div className="clock-hand clock-hand-minute" style={{ transform: `translateX(-50%) rotate(${clockAngles.minute}deg)` }} />
+                  <div className="clock-center-dot" />
+                </div>
+              </div>
+            ) : null}
           </div>
         </section>
       </section>
+
+      <div className="bottom-progress" aria-hidden="true">
+        <div key={activeSlide.id} className="bottom-progress-bar" style={progressStyle} />
+      </div>
 
       {isSettingsOpen ? (
         <div className="modal-backdrop" onClick={closeSettings}>
@@ -249,6 +452,36 @@ export default function App() {
                 onChange={(event) => setDraftLibraryPath(event.target.value)}
                 placeholder="输入 Eagle 库路径"
               />
+            </div>
+
+            <div className="settings-block">
+              <label className="settings-label" htmlFor="slide-duration">
+                每张图片停留时间（秒）
+              </label>
+              <input
+                id="slide-duration"
+                className="text-input"
+                type="number"
+                min="2"
+                max="3600"
+                step="1"
+                value={draftSlideDurationSeconds}
+                onChange={(event) => setDraftSlideDurationSeconds(event.target.value)}
+                placeholder="例如 8"
+              />
+            </div>
+
+            <div className="settings-block">
+              <label className="toggle-row" htmlFor="show-clock">
+                <span className="settings-label">显示右上角时钟</span>
+                <input
+                  id="show-clock"
+                  className="toggle-input"
+                  type="checkbox"
+                  checked={draftShowClock}
+                  onChange={(event) => setDraftShowClock(event.target.checked)}
+                />
+              </label>
             </div>
 
             <p className="settings-message">{settingsMessage}</p>

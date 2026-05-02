@@ -14,6 +14,9 @@ type EagleImageMetadata = {
   folders?: string[];
   isDeleted?: boolean;
   url?: string;
+  annotation?: string;
+  comments?: string;
+  description?: string;
   btime?: number;
 };
 type EagleImageItem = {
@@ -25,6 +28,7 @@ type EagleImageItem = {
   height: number | null;
   btime: number;
   url: string;
+  annotation: string;
   imagePath: string;
 };
 
@@ -107,6 +111,7 @@ function readLibraryImages(libraryPath: string) {
           height: metadata.height ?? null,
           btime: metadata.btime ?? 0,
           url: metadata.url ?? '',
+          annotation: metadata.annotation ?? metadata.comments ?? metadata.description ?? '',
           imagePath
         } satisfies EagleImageItem;
       } catch {
@@ -164,6 +169,7 @@ function createEaglePlugin(): Plugin {
             width: item.width,
             height: item.height,
             url: item.url,
+            annotation: item.annotation,
             src: `/api/eagle/file?path=${encodeURIComponent(item.imagePath)}`
           }));
 
@@ -269,6 +275,7 @@ export default defineConfig({
   plugins: [react(), createEaglePlugin()],
   server: {
     host: '0.0.0.0',
-    port: 4173
+    port: 4173,
+    strictPort: false
   }
 });
