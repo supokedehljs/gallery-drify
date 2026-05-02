@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('galleryDrift', {
   moveWindow: (deltaX, deltaY) => ipcRenderer.invoke('gallery-drift:move-window', deltaX, deltaY),
   loadImages: (libraryPath) => ipcRenderer.invoke('gallery-drift:load-images', libraryPath),
   deleteItem: (libraryPath, itemId) => ipcRenderer.invoke('gallery-drift:delete-item', libraryPath, itemId),
+  getStartupSetting: () => ipcRenderer.invoke('gallery-drift:get-startup-setting'),
+  setStartupSetting: (enabled) => ipcRenderer.invoke('gallery-drift:set-startup-setting', enabled),
   onOpenSettings: (callback) => {
     const listener = () => callback();
     ipcRenderer.on('gallery-drift:open-settings', listener);

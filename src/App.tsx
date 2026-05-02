@@ -119,10 +119,15 @@ export default function App() {
   const [clockAngles, setClockAngles] = useState({ hour: 0, minute: 0 });
   const [draftSlideDurationSeconds, setDraftSlideDurationSeconds] = useState(String(initialDurationSeconds));
   const [draftShowClock, setDraftShowClock] = useState(initialShowClock === null ? DEFAULT_SHOW_CLOCK : initialShowClock === 'true');
+  const [openAtLogin, setOpenAtLogin] = useState(false);
+  const [draftOpenAtLogin, setDraftOpenAtLogin] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
+  const [activatedVideoId, setActivatedVideoId] = useState<string | null>(null);
   const [settingsMessage, setSettingsMessage] = useState('请输入 Eagle 库路径，确认后将轮播整个库中的图片。');
   const rotateMs = slideDurationSeconds * 1000;
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const activeIndexRef = useRef(activeIndex);
+  const slidesRef = useRef(slides);
 
   const goToNextSlide = () => {
     setActiveIndex((current) => (current + 1) % slides.length);
@@ -138,21 +143,26 @@ export default function App() {
       return;
     }
 
-    const timer = window.setInterval(() => {
+    const timer = window.setTimeout(() => {
       goToNextSlide();
     }, rotateMs);
 
-    return () => window.clearInterval(timer);
+    return () => window.clearTimeout(timer);
   }, [activeIndex, isPaused, rotateMs, slides]);
 
 
   useEffect(() => {
+    activeIndexRef.current = activeIndex;
+    slidesRef.current = slides;
+  }, [activeIndex, slides]);
+
+  useEffect(() => {
     const updateClock = () => {
       const now = new Date();
-      const formatter = new Intl.DateTimeFormat('zh-CN', {
-        hour: '2-digit',
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        hour: 'numeric',
         minute: '2-digit',
-        hour12: false
+        hour12: true
       });
       const hours = now.getHours() % 12;
       const minutes = now.getMinutes();
@@ -167,6 +177,25 @@ export default function App() {
     const timer = window.setInterval(updateClock, 10000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    void window.galleryDrift?.getStartupSetting().then((state) => {
+      setOpenAtLogin(Boolean(state?.openAtLogin));
+      setDraftOpenAtLogin(Boolean(state?.openAtLogin));
+    });
+  }, []);
+
+  useEffect(() => {
+    const handlePointerDown = () => {
+      const currentSlide = slides[activeIndex] ?? demoSlides[0];
+      if (currentSlide.mediaType === 'video') {
+        setActivatedVideoId(currentSlide.id);
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => window.removeEventListener('pointerdown', handlePointerDown);
+  }, [activeIndex, slides]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -214,8 +243,9 @@ export default function App() {
     }
 
     video.loop = isVideoHold;
+    video.muted = activatedVideoId !== currentSlide.id;
     void video.play().catch(() => undefined);
-  }, [activeIndex, isVideoHold, slides]);
+  }, [activatedVideoId, activeIndex, isVideoHold, slides]);
 
   useEffect(() => {
     const currentSlide = slides[activeIndex] ?? demoSlides[0];
@@ -229,6 +259,7 @@ export default function App() {
       setDraftLibraryPath(appliedLibraryPath || initialLibraryPath);
       setDraftSlideDurationSeconds(String(slideDurationSeconds));
       setDraftShowClock(showClock);
+      setDraftOpenAtLogin(openAtLogin);
       setSettingsMessage('请输入 Eagle 库路径，并设置每张图片停留时间。');
       setIsSettingsOpen(true);
     });
@@ -287,10 +318,12 @@ export default function App() {
         }
 
         const nextSlides = buildSlides(images);
+        const currentSlideId = slidesRef.current[activeIndexRef.current]?.id;
+        const nextActiveIndex = currentSlideId ? nextSlides.findIndex((slide) => slide.id === currentSlideId) : -1;
 
         setSlides(nextSlides);
         setUsingDemoSlides(false);
-        setActiveIndex(0);
+        setActiveIndex(nextActiveIndex >= 0 ? nextActiveIndex : 0);
         setLastLibrarySignature(signature);
         setStatusText(
           isBackgroundRefresh
@@ -329,6 +362,8 @@ export default function App() {
   const hasAnnotation = Boolean(activeSlide.annotation.trim());
   const isVideoActive = activeSlide.mediaType === 'video';
   const showPausedBadge = isVideoActive ? isVideoHold : isPaused;
+  const playbackBadgeText = isVideoActive && isVideoHold ? '∞' : 'Ⅱ';
+  const clockNumbers = Array.from({ length: 12 }, (_, index) => index + 1);
 
   const progressStyle = useMemo(
     () => ({
@@ -353,6 +388,8 @@ export default function App() {
     setAppliedLibraryPath(nextPath);
     setSlideDurationSeconds(nextDurationSeconds);
     setShowClock(draftShowClock);
+    setOpenAtLogin(draftOpenAtLogin);
+    void window.galleryDrift?.setStartupSetting(draftOpenAtLogin);
     setLoadVersion((current) => current + 1);
     localStorage.setItem(PATH_STORAGE_KEY, nextPath);
     localStorage.setItem(DURATION_STORAGE_KEY, String(nextDurationSeconds));
@@ -386,7 +423,7 @@ export default function App() {
                       ref={index === activeIndex ? videoRef : undefined}
                       className="stage-video"
                       src={slide.image}
-                      muted
+                      muted={activatedVideoId !== slide.id}
                       autoPlay={index === activeIndex}
                       playsInline
                       onEnded={goToNextSlide}
@@ -401,18 +438,25 @@ export default function App() {
               </div>
             ))}
             <div className="image-overlay" />
-            {showPausedBadge ? <div className="playback-badge">Ⅱ</div> : null}
+            {showPausedBadge ? <div className="playback-badge">{playbackBadgeText}</div> : null}
             <div className="image-caption">
               <div className="image-title">{activeSlide.title}</div>
               {hasAnnotation ? <div className="image-annotation">{activeSlide.annotation}</div> : null}
             </div>
             {showClock ? (
               <div className="image-clock" aria-label={clockText}>
-                <div className="clock-face">
-                  <div className="clock-hand clock-hand-hour" style={{ transform: `translateX(-50%) rotate(${clockAngles.hour}deg)` }} />
-                  <div className="clock-hand clock-hand-minute" style={{ transform: `translateX(-50%) rotate(${clockAngles.minute}deg)` }} />
-                  <div className="clock-center-dot" />
-                </div>
+                {clockNumbers.map((number) => (
+                  <span
+                    key={number}
+                    className="clock-number"
+                    style={{ transform: `translate(-50%, -50%) rotate(${number * 30}deg) translateY(-56px) rotate(-${number * 30}deg)` }}
+                  >
+                    {number}
+                  </span>
+                ))}
+                <div className="clock-hand clock-hand-hour" style={{ transform: `translateX(-50%) rotate(${clockAngles.hour}deg)` }} />
+                <div className="clock-hand clock-hand-minute" style={{ transform: `translateX(-50%) rotate(${clockAngles.minute}deg)` }} />
+                <div className="clock-center-dot" />
               </div>
             ) : null}
           </div>
@@ -434,46 +478,51 @@ export default function App() {
             <div className="modal-header">
               <div>
                 <p className="modal-eyebrow">设置</p>
-                <h2>统一配置图片来源</h2>
+                <h2>Gallery Drift</h2>
+                <p className="modal-subtitle">集中管理图片来源、播放节奏与系统行为。</p>
               </div>
               <button className="ghost-button" onClick={closeSettings} aria-label="关闭设置面板">
                 关闭
               </button>
             </div>
 
-            <div className="settings-block">
-              <label className="settings-label" htmlFor="library-path">
-                Eagle 库路径
-              </label>
-              <input
-                id="library-path"
-                className="text-input"
-                value={draftLibraryPath}
-                onChange={(event) => setDraftLibraryPath(event.target.value)}
-                placeholder="输入 Eagle 库路径"
-              />
-            </div>
+            <div className="settings-grid">
+              <div className="settings-card settings-card-wide">
+                <label className="settings-label" htmlFor="library-path">
+                  Eagle 库路径
+                </label>
+                <input
+                  id="library-path"
+                  className="text-input"
+                  value={draftLibraryPath}
+                  onChange={(event) => setDraftLibraryPath(event.target.value)}
+                  placeholder="输入 Eagle 库路径"
+                />
+              </div>
 
-            <div className="settings-block">
-              <label className="settings-label" htmlFor="slide-duration">
-                每张图片停留时间（秒）
-              </label>
-              <input
-                id="slide-duration"
-                className="text-input"
-                type="number"
-                min="2"
-                max="3600"
-                step="1"
-                value={draftSlideDurationSeconds}
-                onChange={(event) => setDraftSlideDurationSeconds(event.target.value)}
-                placeholder="例如 8"
-              />
-            </div>
+              <div className="settings-card">
+                <label className="settings-label" htmlFor="slide-duration">
+                  停留时间
+                </label>
+                <input
+                  id="slide-duration"
+                  className="text-input"
+                  type="number"
+                  min="2"
+                  max="3600"
+                  step="1"
+                  value={draftSlideDurationSeconds}
+                  onChange={(event) => setDraftSlideDurationSeconds(event.target.value)}
+                  placeholder="例如 8"
+                />
+                <p className="settings-help">单位：秒，仅对图片生效。</p>
+              </div>
 
-            <div className="settings-block">
-              <label className="toggle-row" htmlFor="show-clock">
-                <span className="settings-label">显示右上角时钟</span>
+              <label className="settings-card toggle-card" htmlFor="show-clock">
+                <div>
+                  <span className="settings-label">显示时钟</span>
+                  <p className="settings-help">在右下角显示钟表。</p>
+                </div>
                 <input
                   id="show-clock"
                   className="toggle-input"
@@ -482,16 +531,30 @@ export default function App() {
                   onChange={(event) => setDraftShowClock(event.target.checked)}
                 />
               </label>
+
+              <label className="settings-card toggle-card" htmlFor="open-at-login">
+                <div>
+                  <span className="settings-label">开机启动</span>
+                  <p className="settings-help">登录 Windows 后自动打开软件。</p>
+                </div>
+                <input
+                  id="open-at-login"
+                  className="toggle-input"
+                  type="checkbox"
+                  checked={draftOpenAtLogin}
+                  onChange={(event) => setDraftOpenAtLogin(event.target.checked)}
+                />
+              </label>
             </div>
 
             <p className="settings-message">{settingsMessage}</p>
 
             <div className="modal-actions">
-              <button className="ghost-button" onClick={closeSettings}>
+              <button className="secondary-button" onClick={closeSettings}>
                 取消
               </button>
-              <button className="primary-button" onClick={applySettings}>
-                确认应用
+              <button className="primary-button" onClick={applySettings} disabled={isApplying}>
+                {isApplying ? '处理中…' : '保存设置'}
               </button>
             </div>
           </section>

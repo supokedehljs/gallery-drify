@@ -1,9 +1,10 @@
-const { app, BrowserWindow, ipcMain, screen, dialog, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, dialog, Menu, Tray, nativeImage } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
 let mainWindow = null;
+let tray = null;
 
 const distIndexPath = path.join(__dirname, '..', 'dist', 'index.html');
 const devServerUrl = process.env.GALLERY_DRIFT_DEV_URL || 'http://localhost:4173';
@@ -11,6 +12,43 @@ const shouldUseDevServer = process.env.GALLERY_DRIFT_DEV === '1';
 const imageExtensions = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif']);
 const videoExtensions = new Set(['mp4', 'mov', 'm4v', 'webm', 'avi', 'mkv']);
 const windowStatePath = path.join(app.getPath('userData'), 'gallery-drift-window-state.json');
+const startupStatePath = path.join(app.getPath('userData'), 'gallery-drift-startup.json');
+const DEFAULT_ALWAYS_ON_TOP = true;
+const iconPngPath = path.join(__dirname, 'assets', 'icon.png');
+const iconIcoPath = path.join(__dirname, 'assets', 'icon.ico');
+
+function getAppIconPath() {
+  return process.platform === 'win32' ? iconIcoPath : iconPngPath;
+}
+
+function getTrayIcon() {
+  return nativeImage.createFromPath(iconPngPath);
+}
+
+function readStartupState() {
+  try {
+    if (!fs.existsSync(startupStatePath)) {
+      return { openAtLogin: false };
+    }
+
+    return { openAtLogin: Boolean(readJsonFile(startupStatePath).openAtLogin) };
+  } catch {
+    return { openAtLogin: false };
+  }
+}
+
+function writeStartupState(openAtLogin) {
+  try {
+    fs.writeFileSync(startupStatePath, JSON.stringify({ openAtLogin: Boolean(openAtLogin) }, null, 2), 'utf8');
+  } catch {
+  }
+}
+
+function setOpenAtLogin(enabled) {
+  app.setLoginItemSettings({ openAtLogin: Boolean(enabled) });
+  writeStartupState(enabled);
+  return { openAtLogin: Boolean(enabled) };
+}
 
 function normalizeLibraryPath(input) {
   if (!input) {
@@ -217,6 +255,36 @@ function showContextMenu(win) {
   menu.popup({ window: win });
 }
 
+function createTray() {
+  if (tray) {
+    return;
+  }
+
+  tray = new Tray(getTrayIcon());
+  tray.setToolTip('Gallery Drift');
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: '显示窗口',
+        click: () => {
+          mainWindow?.show();
+          mainWindow?.focus();
+        }
+      },
+      {
+        label: '退出',
+        click: () => {
+          app.quit();
+        }
+      }
+    ])
+  );
+  tray.on('click', () => {
+    mainWindow?.show();
+    mainWindow?.focus();
+  });
+}
+
 function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
   const workArea = primaryDisplay.workArea || primaryDisplay.bounds;
@@ -231,12 +299,13 @@ function createWindow() {
     y,
     width,
     height,
+    icon: getAppIconPath(),
     backgroundColor: '#05070b',
     autoHideMenuBar: true,
     frame: false,
     resizable: true,
     movable: true,
-    alwaysOnTop: savedState?.isAlwaysOnTop ?? false,
+    alwaysOnTop: savedState?.isAlwaysOnTop ?? DEFAULT_ALWAYS_ON_TOP,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -289,6 +358,8 @@ function createWindow() {
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
+  setOpenAtLogin(readStartupState().openAtLogin);
+  createTray();
 
   try {
     createWindow();
@@ -354,5 +425,13 @@ ipcMain.handle('gallery-drift:load-images', (_event, libraryPath) => {
 
 ipcMain.handle('gallery-drift:delete-item', (_event, libraryPath, itemId) => {
   return deleteLibraryItem(libraryPath, itemId);
+});
+
+ipcMain.handle('gallery-drift:get-startup-setting', () => {
+  return readStartupState();
+});
+
+ipcMain.handle('gallery-drift:set-startup-setting', (_event, enabled) => {
+  return setOpenAtLogin(enabled);
 });
 

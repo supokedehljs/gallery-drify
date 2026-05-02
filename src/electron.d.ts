@@ -17,6 +17,10 @@ type GalleryDriftImagesResponse = {
   error?: string;
 };
 
+type GalleryDriftStartupSetting = {
+  openAtLogin: boolean;
+};
+
 declare global {
   interface Window {
     galleryDrift?: {
@@ -25,6 +29,8 @@ declare global {
       moveWindow: (deltaX: number, deltaY: number) => Promise<boolean>;
       loadImages: (libraryPath: string) => Promise<GalleryDriftImagesResponse>;
       deleteItem: (libraryPath: string, itemId: string) => Promise<{ success: boolean }>;
+      getStartupSetting: () => Promise<GalleryDriftStartupSetting>;
+      setStartupSetting: (enabled: boolean) => Promise<GalleryDriftStartupSetting>;
       onOpenSettings: (callback: () => void) => () => void;
     };
   }
