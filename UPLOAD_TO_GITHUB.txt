@@ -1,0 +1,39 @@
+Gallery Drift 上传说明
+
+远端仓库：
+https://github.com/supokedehljs/gallery-drify.git
+
+以后如果你要我帮你继续上传这个项目，直接告诉我：
+“请按 UPLOAD_TO_GITHUB.txt 的说明把 Gallery Drift 当前版本上传到 GitHub。”
+
+标准上传步骤：
+
+1. 进入项目目录
+   d:\OneDrive\cursor_workspace\Gallery Drift
+
+2. 检查 Git 状态
+   git status
+
+3. 如果还没有仓库，初始化并绑定远端
+   git init
+   git branch -M main
+   git remote remove origin
+   git remote add origin https://github.com/supokedehljs/gallery-drify.git
+
+4. 提交当前修改
+   git add .
+   git commit -m "update: Gallery Drift latest version"
+
+5. 上传到 GitHub
+   git push -u origin main
+
+补充说明：
+- `.gitignore` 已经配置为忽略 `node_modules/`、`dist/`、`*.tsbuildinfo`、日志等文件。
+- 如果 GitHub 要求登录，就按系统弹窗完成授权。
+- 如果远端已经有内容而本地没有历史，可能需要先拉取或强制推送，操作前先确认。
+- 上传前建议先确认项目中没有临时测试文件。
+
+这次上传目标：
+- 上传当前 Gallery Drift 项目版本
+- 轮播整个 Eagle 库图片
+- 排除缩略图文件
