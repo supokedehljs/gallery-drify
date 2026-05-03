@@ -305,6 +305,7 @@ function createWindow() {
     frame: false,
     resizable: true,
     movable: true,
+    skipTaskbar: true,
     alwaysOnTop: savedState?.isAlwaysOnTop ?? DEFAULT_ALWAYS_ON_TOP,
     show: false,
     webPreferences: {
@@ -314,6 +315,8 @@ function createWindow() {
       sandbox: false
     }
   });
+
+  mainWindow.setSkipTaskbar(true);
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
