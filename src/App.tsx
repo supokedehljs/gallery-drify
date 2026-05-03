@@ -66,10 +66,20 @@ const AUTO_REFRESH_MS = 15000;
 const DEFAULT_LIBRARY_PATH = 'D:\\OneDrive\\参考\\李杰.library';
 const DEFAULT_ROTATE_SECONDS = 8;
 const DEFAULT_SHOW_CLOCK = true;
+const DEFAULT_GRADIENT_SIZE = 44;
+const DEFAULT_GRADIENT_STRENGTH = 78;
+const DEFAULT_BOTTOM_RIGHT_RADIUS = 72;
+const DEFAULT_CLOCK_OFFSET_X = 26;
+const DEFAULT_CLOCK_OFFSET_Y = 22;
 const PATH_STORAGE_KEY = 'gallery-drift.eagle-library-path';
 const DURATION_STORAGE_KEY = 'gallery-drift.slide-duration-seconds';
 const CLOCK_STORAGE_KEY = 'gallery-drift.show-clock';
 const AUDIO_MODE_STORAGE_KEY = 'gallery-drift.audio-mode';
+const GRADIENT_SIZE_STORAGE_KEY = 'gallery-drift.clock-gradient-size';
+const GRADIENT_STRENGTH_STORAGE_KEY = 'gallery-drift.clock-gradient-strength';
+const BOTTOM_RIGHT_RADIUS_STORAGE_KEY = 'gallery-drift.bottom-right-radius';
+const CLOCK_OFFSET_X_STORAGE_KEY = 'gallery-drift.clock-offset-x';
+const CLOCK_OFFSET_Y_STORAGE_KEY = 'gallery-drift.clock-offset-y';
 
 function clampDurationSeconds(value: number) {
   if (!Number.isFinite(value)) {
@@ -77,6 +87,46 @@ function clampDurationSeconds(value: number) {
   }
 
   return Math.min(3600, Math.max(2, Math.round(value)));
+}
+
+function clampGradientSize(value: number) {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_GRADIENT_SIZE;
+  }
+
+  return Math.min(80, Math.max(10, Math.round(value)));
+}
+
+function clampGradientStrength(value: number) {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_GRADIENT_STRENGTH;
+  }
+
+  return Math.min(100, Math.max(0, Math.round(value)));
+}
+
+function clampBottomRightRadius(value: number) {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_BOTTOM_RIGHT_RADIUS;
+  }
+
+  return Math.min(220, Math.max(30, Math.round(value)));
+}
+
+function clampClockOffsetX(value: number) {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_CLOCK_OFFSET_X;
+  }
+
+  return Math.min(120, Math.max(-40, Math.round(value)));
+}
+
+function clampClockOffsetY(value: number) {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_CLOCK_OFFSET_Y;
+  }
+
+  return Math.min(120, Math.max(-40, Math.round(value)));
 }
 
 function shuffleSlides(items: Slide[]) {
@@ -103,6 +153,11 @@ export default function App() {
   const initialDurationSeconds = clampDurationSeconds(Number(localStorage.getItem(DURATION_STORAGE_KEY)) || DEFAULT_ROTATE_SECONDS);
   const initialShowClock = localStorage.getItem(CLOCK_STORAGE_KEY);
   const initialAudioMode = (localStorage.getItem(AUDIO_MODE_STORAGE_KEY) as AudioMode | null) ?? 'muted';
+  const initialGradientSize = clampGradientSize(Number(localStorage.getItem(GRADIENT_SIZE_STORAGE_KEY)) || DEFAULT_GRADIENT_SIZE);
+  const initialGradientStrength = clampGradientStrength(Number(localStorage.getItem(GRADIENT_STRENGTH_STORAGE_KEY)) || DEFAULT_GRADIENT_STRENGTH);
+  const initialBottomRightRadius = clampBottomRightRadius(Number(localStorage.getItem(BOTTOM_RIGHT_RADIUS_STORAGE_KEY)) || DEFAULT_BOTTOM_RIGHT_RADIUS);
+  const initialClockOffsetX = clampClockOffsetX(Number(localStorage.getItem(CLOCK_OFFSET_X_STORAGE_KEY)) || DEFAULT_CLOCK_OFFSET_X);
+  const initialClockOffsetY = clampClockOffsetY(Number(localStorage.getItem(CLOCK_OFFSET_Y_STORAGE_KEY)) || DEFAULT_CLOCK_OFFSET_Y);
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [slides, setSlides] = useState<Slide[]>(demoSlides);
@@ -120,10 +175,21 @@ export default function App() {
   const [slideDurationSeconds, setSlideDurationSeconds] = useState(initialDurationSeconds);
   const [showClock, setShowClock] = useState(initialShowClock === null ? DEFAULT_SHOW_CLOCK : initialShowClock === 'true');
   const [audioMode, setAudioMode] = useState<AudioMode>(initialAudioMode === 'sound' ? 'sound' : 'muted');
+  const [gradientSize, setGradientSize] = useState(initialGradientSize);
+  const [gradientStrength, setGradientStrength] = useState(initialGradientStrength);
+  const [bottomRightRadius, setBottomRightRadius] = useState(initialBottomRightRadius);
+  const [clockOffsetX, setClockOffsetX] = useState(initialClockOffsetX);
+  const [clockOffsetY, setClockOffsetY] = useState(initialClockOffsetY);
+  const [videoProgress, setVideoProgress] = useState(0);
   const [clockText, setClockText] = useState('');
   const [clockAngles, setClockAngles] = useState({ hour: 0, minute: 0 });
   const [draftSlideDurationSeconds, setDraftSlideDurationSeconds] = useState(String(initialDurationSeconds));
   const [draftShowClock, setDraftShowClock] = useState(initialShowClock === null ? DEFAULT_SHOW_CLOCK : initialShowClock === 'true');
+  const [draftGradientSize, setDraftGradientSize] = useState(String(initialGradientSize));
+  const [draftGradientStrength, setDraftGradientStrength] = useState(String(initialGradientStrength));
+  const [draftBottomRightRadius, setDraftBottomRightRadius] = useState(String(initialBottomRightRadius));
+  const [draftClockOffsetX, setDraftClockOffsetX] = useState(String(initialClockOffsetX));
+  const [draftClockOffsetY, setDraftClockOffsetY] = useState(String(initialClockOffsetY));
   const [openAtLogin, setOpenAtLogin] = useState(false);
   const [draftOpenAtLogin, setDraftOpenAtLogin] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
@@ -262,6 +328,41 @@ export default function App() {
 
   useEffect(() => {
     const currentSlide = slides[activeIndex] ?? demoSlides[0];
+    if (currentSlide.mediaType !== 'video') {
+      setVideoProgress(0);
+      return;
+    }
+
+    const video = videoRef.current;
+    if (!video) {
+      setVideoProgress(0);
+      return;
+    }
+
+    const updateProgress = () => {
+      if (!Number.isFinite(video.duration) || video.duration <= 0) {
+        setVideoProgress(0);
+        return;
+      }
+
+      setVideoProgress(Math.min(1, Math.max(0, video.currentTime / video.duration)));
+    };
+
+    updateProgress();
+    video.addEventListener('timeupdate', updateProgress);
+    video.addEventListener('loadedmetadata', updateProgress);
+    video.addEventListener('seeked', updateProgress);
+    video.addEventListener('ended', () => setVideoProgress(1), { once: true });
+
+    return () => {
+      video.removeEventListener('timeupdate', updateProgress);
+      video.removeEventListener('loadedmetadata', updateProgress);
+      video.removeEventListener('seeked', updateProgress);
+    };
+  }, [activeIndex, slides]);
+
+  useEffect(() => {
+    const currentSlide = slides[activeIndex] ?? demoSlides[0];
     if (currentSlide.mediaType !== 'video' && isVideoHold) {
       setIsVideoHold(false);
     }
@@ -272,15 +373,31 @@ export default function App() {
       setDraftLibraryPath(appliedLibraryPath || initialLibraryPath);
       setDraftSlideDurationSeconds(String(slideDurationSeconds));
       setDraftShowClock(showClock);
+      setDraftGradientSize(String(gradientSize));
+      setDraftGradientStrength(String(gradientStrength));
+      setDraftBottomRightRadius(String(bottomRightRadius));
+      setDraftClockOffsetX(String(clockOffsetX));
+      setDraftClockOffsetY(String(clockOffsetY));
       setDraftOpenAtLogin(openAtLogin);
-      setSettingsMessage('请输入 Eagle 库路径，并设置每张图片停留时间。');
+      setSettingsMessage('请输入 Eagle 库路径，并设置显示细节。');
       setIsSettingsOpen(true);
     });
 
     return () => {
       dispose?.();
     };
-  }, [appliedLibraryPath, initialLibraryPath, showClock, slideDurationSeconds]);
+  }, [
+    appliedLibraryPath,
+    bottomRightRadius,
+    clockOffsetX,
+    clockOffsetY,
+    gradientSize,
+    gradientStrength,
+    initialLibraryPath,
+    openAtLogin,
+    showClock,
+    slideDurationSeconds
+  ]);
 
   useEffect(() => {
     if (!appliedLibraryPath) {
@@ -380,11 +497,32 @@ export default function App() {
   const audioButtonLabel = isAudioEnabled ? '关闭声音' : '打开声音';
   const clockNumbers = Array.from({ length: 12 }, (_, index) => index + 1);
 
-  const progressStyle = useMemo(
-    () => ({
+  const progressStyle = useMemo(() => {
+    if (isVideoActive) {
+      return {
+        transform: `scaleX(${videoProgress})`,
+        animation: 'none'
+      };
+    }
+
+    return {
       animationDuration: `${rotateMs}ms`
+    };
+  }, [isVideoActive, rotateMs, videoProgress]);
+
+  const frameStyle = useMemo(
+    () => ({
+      borderBottomRightRadius: `${bottomRightRadius}px`
     }),
-    [rotateMs]
+    [bottomRightRadius]
+  );
+
+  const clockStyle = useMemo(
+    () => ({
+      right: `${clockOffsetX}px`,
+      bottom: `${clockOffsetY}px`
+    }),
+    [clockOffsetX, clockOffsetY]
   );
 
   const closeSettings = () => {
@@ -399,16 +537,31 @@ export default function App() {
     }
 
     const nextDurationSeconds = clampDurationSeconds(Number(draftSlideDurationSeconds));
+    const nextGradientSize = clampGradientSize(Number(draftGradientSize));
+    const nextGradientStrength = clampGradientStrength(Number(draftGradientStrength));
+    const nextBottomRightRadius = clampBottomRightRadius(Number(draftBottomRightRadius));
+    const nextClockOffsetX = clampClockOffsetX(Number(draftClockOffsetX));
+    const nextClockOffsetY = clampClockOffsetY(Number(draftClockOffsetY));
 
     setAppliedLibraryPath(nextPath);
     setSlideDurationSeconds(nextDurationSeconds);
     setShowClock(draftShowClock);
+    setGradientSize(nextGradientSize);
+    setGradientStrength(nextGradientStrength);
+    setBottomRightRadius(nextBottomRightRadius);
+    setClockOffsetX(nextClockOffsetX);
+    setClockOffsetY(nextClockOffsetY);
     setOpenAtLogin(draftOpenAtLogin);
     void window.galleryDrift?.setStartupSetting(draftOpenAtLogin);
     setLoadVersion((current) => current + 1);
     localStorage.setItem(PATH_STORAGE_KEY, nextPath);
     localStorage.setItem(DURATION_STORAGE_KEY, String(nextDurationSeconds));
     localStorage.setItem(CLOCK_STORAGE_KEY, String(draftShowClock));
+    localStorage.setItem(GRADIENT_SIZE_STORAGE_KEY, String(nextGradientSize));
+    localStorage.setItem(GRADIENT_STRENGTH_STORAGE_KEY, String(nextGradientStrength));
+    localStorage.setItem(BOTTOM_RIGHT_RADIUS_STORAGE_KEY, String(nextBottomRightRadius));
+    localStorage.setItem(CLOCK_OFFSET_X_STORAGE_KEY, String(nextClockOffsetX));
+    localStorage.setItem(CLOCK_OFFSET_Y_STORAGE_KEY, String(nextClockOffsetY));
     setStatusText('设置已确认，正在重新加载整个库中的真实图片…');
     setIsSettingsOpen(false);
   };
@@ -421,7 +574,7 @@ export default function App() {
 
       <section className="content-panel no-annotation">
         <section className="gallery-panel">
-          <div className="image-frame">
+          <div className="image-frame" style={frameStyle}>
             {slides.map((slide, index) => (
               <div key={slide.id} className={`slide-layer ${index === activeIndex ? 'is-active' : ''}`}>
                 {slide.mediaType === 'video' ? (
@@ -453,7 +606,6 @@ export default function App() {
               </div>
             ))}
             <div className="image-overlay" />
-            {showClock ? <div className="clock-corner-gradient" aria-hidden="true" /> : null}
             {showPausedBadge ? <div className="playback-badge">{playbackBadgeText}</div> : null}
             <div className="image-caption">
               <div className="image-title-wrap">
@@ -477,7 +629,7 @@ export default function App() {
               {hasAnnotation ? <div className="image-annotation">{activeSlide.annotation}</div> : null}
             </div>
             {showClock ? (
-              <div className="image-clock" aria-label={clockText}>
+              <div className="image-clock" aria-label={clockText} style={clockStyle}>
                 {clockNumbers.map((number) => (
                   <span
                     key={number}
@@ -497,7 +649,7 @@ export default function App() {
       </section>
 
       <div className="bottom-progress" aria-hidden="true">
-        <div key={activeSlide.id} className="bottom-progress-bar" style={progressStyle} />
+        <div key={`${activeSlide.id}-${isVideoActive ? 'video' : 'image'}`} className={`bottom-progress-bar ${isVideoActive ? 'is-video-progress' : ''}`} style={progressStyle} />
       </div>
 
       {isSettingsOpen ? (
@@ -512,7 +664,7 @@ export default function App() {
               <div>
                 <p className="modal-eyebrow">设置</p>
                 <h2>Gallery Drift</h2>
-                <p className="modal-subtitle">集中管理图片来源、播放节奏与系统行为。</p>
+                <p className="modal-subtitle">集中管理图片来源、播放节奏与视觉细节。</p>
               </div>
               <button className="ghost-button" onClick={closeSettings} aria-label="关闭设置面板">
                 关闭
@@ -564,6 +716,91 @@ export default function App() {
                   onChange={(event) => setDraftShowClock(event.target.checked)}
                 />
               </label>
+
+              <div className="settings-card">
+                <label className="settings-label" htmlFor="gradient-size">
+                  渐变范围
+                </label>
+                <input
+                  id="gradient-size"
+                  className="text-input"
+                  type="number"
+                  min="10"
+                  max="80"
+                  step="1"
+                  value={draftGradientSize}
+                  onChange={(event) => setDraftGradientSize(event.target.value)}
+                />
+                <p className="settings-help">单位：vw，控制右下角渐变覆盖范围。</p>
+              </div>
+
+              <div className="settings-card">
+                <label className="settings-label" htmlFor="gradient-strength">
+                  渐变强度
+                </label>
+                <input
+                  id="gradient-strength"
+                  className="text-input"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={draftGradientStrength}
+                  onChange={(event) => setDraftGradientStrength(event.target.value)}
+                />
+                <p className="settings-help">0 到 100，数值越大越深。</p>
+              </div>
+
+              <div className="settings-card">
+                <label className="settings-label" htmlFor="bottom-right-radius">
+                  右下角圆角
+                </label>
+                <input
+                  id="bottom-right-radius"
+                  className="text-input"
+                  type="number"
+                  min="30"
+                  max="220"
+                  step="1"
+                  value={draftBottomRightRadius}
+                  onChange={(event) => setDraftBottomRightRadius(event.target.value)}
+                />
+                <p className="settings-help">单位：px，仅修改右下角圆角。</p>
+              </div>
+
+              <div className="settings-card">
+                <label className="settings-label" htmlFor="clock-offset-x">
+                  钟表左右位置
+                </label>
+                <input
+                  id="clock-offset-x"
+                  className="text-input"
+                  type="number"
+                  min="-40"
+                  max="120"
+                  step="1"
+                  value={draftClockOffsetX}
+                  onChange={(event) => setDraftClockOffsetX(event.target.value)}
+                />
+                <p className="settings-help">单位：px，数值越小越靠右，越大越向左。</p>
+              </div>
+
+              <div className="settings-card">
+                <label className="settings-label" htmlFor="clock-offset-y">
+                  钟表上下位置
+                </label>
+                <input
+                  id="clock-offset-y"
+                  className="text-input"
+                  type="number"
+                  min="-40"
+                  max="120"
+                  step="1"
+                  value={draftClockOffsetY}
+                  onChange={(event) => setDraftClockOffsetY(event.target.value)}
+                />
+                <p className="settings-help">单位：px，数值越小越靠下，越大越向上。</p>
+              </div>
 
               <label className="settings-card toggle-card" htmlFor="open-at-login">
                 <div>

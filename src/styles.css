@@ -166,7 +166,10 @@ textarea,
   height: 100%;
   overflow: hidden;
   border: 1px solid rgba(237, 241, 247, 0.08);
-  border-radius: 30px;
+  border-top-left-radius: 30px;
+  border-top-right-radius: 30px;
+  border-bottom-left-radius: 30px;
+  border-bottom-right-radius: 72px;
   background: rgba(255, 255, 255, 0.03);
   box-shadow:
     0 30px 80px rgba(0, 0, 0, 0.34),
@@ -234,15 +237,7 @@ textarea,
 }
 
 .clock-corner-gradient {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: min(44vw, 680px);
-  height: min(44vw, 680px);
-  z-index: 3;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at bottom right, rgba(4, 6, 10, 0.78) 0%, rgba(6, 8, 12, 0.58) 28%, rgba(8, 10, 14, 0.34) 50%, rgba(8, 10, 14, 0.14) 66%, rgba(8, 10, 14, 0) 82%);
+  display: none;
 }
 
 .playback-badge {
@@ -337,6 +332,18 @@ textarea,
   pointer-events: none;
 }
 
+.image-clock::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+}
+
 .clock-number {
   position: absolute;
   top: 50%;
@@ -400,6 +407,10 @@ textarea,
   transform-origin: left center;
   background: rgba(245, 248, 255, 0.72);
   animation: countdown linear forwards;
+}
+
+.bottom-progress-bar.is-video-progress {
+  animation: none;
 }
 
 .modal-backdrop {
