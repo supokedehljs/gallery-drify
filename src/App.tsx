@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+type AudioMode = 'muted' | 'sound';
+
 type DemoSlide = {
   id: string;
   title: string;
@@ -67,6 +69,7 @@ const DEFAULT_SHOW_CLOCK = true;
 const PATH_STORAGE_KEY = 'gallery-drift.eagle-library-path';
 const DURATION_STORAGE_KEY = 'gallery-drift.slide-duration-seconds';
 const CLOCK_STORAGE_KEY = 'gallery-drift.show-clock';
+const AUDIO_MODE_STORAGE_KEY = 'gallery-drift.audio-mode';
 
 function clampDurationSeconds(value: number) {
   if (!Number.isFinite(value)) {
@@ -99,6 +102,7 @@ export default function App() {
   const initialLibraryPath = localStorage.getItem(PATH_STORAGE_KEY) || DEFAULT_LIBRARY_PATH;
   const initialDurationSeconds = clampDurationSeconds(Number(localStorage.getItem(DURATION_STORAGE_KEY)) || DEFAULT_ROTATE_SECONDS);
   const initialShowClock = localStorage.getItem(CLOCK_STORAGE_KEY);
+  const initialAudioMode = (localStorage.getItem(AUDIO_MODE_STORAGE_KEY) as AudioMode | null) ?? 'muted';
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [slides, setSlides] = useState<Slide[]>(demoSlides);
@@ -115,6 +119,7 @@ export default function App() {
   const [draftLibraryPath, setDraftLibraryPath] = useState(initialLibraryPath);
   const [slideDurationSeconds, setSlideDurationSeconds] = useState(initialDurationSeconds);
   const [showClock, setShowClock] = useState(initialShowClock === null ? DEFAULT_SHOW_CLOCK : initialShowClock === 'true');
+  const [audioMode, setAudioMode] = useState<AudioMode>(initialAudioMode === 'sound' ? 'sound' : 'muted');
   const [clockText, setClockText] = useState('');
   const [clockAngles, setClockAngles] = useState({ hour: 0, minute: 0 });
   const [draftSlideDurationSeconds, setDraftSlideDurationSeconds] = useState(String(initialDurationSeconds));
@@ -122,15 +127,35 @@ export default function App() {
   const [openAtLogin, setOpenAtLogin] = useState(false);
   const [draftOpenAtLogin, setDraftOpenAtLogin] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
-  const [activatedVideoId, setActivatedVideoId] = useState<string | null>(null);
   const [settingsMessage, setSettingsMessage] = useState('请输入 Eagle 库路径，确认后将轮播整个库中的图片。');
   const rotateMs = slideDurationSeconds * 1000;
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const activeIndexRef = useRef(activeIndex);
   const slidesRef = useRef(slides);
 
+  const setActiveVideoRef = (element: HTMLVideoElement | null, isActive: boolean) => {
+    if (isActive) {
+      videoRef.current = element;
+      return;
+    }
+
+    if (element) {
+      element.pause();
+      element.currentTime = 0;
+      element.muted = true;
+    }
+  };
+
   const goToNextSlide = () => {
     setActiveIndex((current) => (current + 1) % slides.length);
+  };
+
+  const toggleAudioMode = () => {
+    setAudioMode((current) => {
+      const nextMode: AudioMode = current === 'sound' ? 'muted' : 'sound';
+      localStorage.setItem(AUDIO_MODE_STORAGE_KEY, nextMode);
+      return nextMode;
+    });
   };
 
   const goToPreviousSlide = () => {
@@ -186,18 +211,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const handlePointerDown = () => {
-      const currentSlide = slides[activeIndex] ?? demoSlides[0];
-      if (currentSlide.mediaType === 'video') {
-        setActivatedVideoId(currentSlide.id);
-      }
-    };
-
-    window.addEventListener('pointerdown', handlePointerDown);
-    return () => window.removeEventListener('pointerdown', handlePointerDown);
-  }, [activeIndex, slides]);
-
-  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) {
@@ -243,9 +256,9 @@ export default function App() {
     }
 
     video.loop = isVideoHold;
-    video.muted = activatedVideoId !== currentSlide.id;
+    video.muted = audioMode !== 'sound';
     void video.play().catch(() => undefined);
-  }, [activatedVideoId, activeIndex, isVideoHold, slides]);
+  }, [activeIndex, audioMode, isVideoHold, slides]);
 
   useEffect(() => {
     const currentSlide = slides[activeIndex] ?? demoSlides[0];
@@ -362,7 +375,9 @@ export default function App() {
   const hasAnnotation = Boolean(activeSlide.annotation.trim());
   const isVideoActive = activeSlide.mediaType === 'video';
   const showPausedBadge = isVideoActive ? isVideoHold : isPaused;
-  const playbackBadgeText = isVideoActive && isVideoHold ? '∞' : 'Ⅱ';
+  const playbackBadgeText = '∞';
+  const isAudioEnabled = audioMode === 'sound';
+  const audioButtonLabel = isAudioEnabled ? '关闭声音' : '打开声音';
   const clockNumbers = Array.from({ length: 12 }, (_, index) => index + 1);
 
   const progressStyle = useMemo(
@@ -420,10 +435,10 @@ export default function App() {
                       playsInline
                     />
                     <video
-                      ref={index === activeIndex ? videoRef : undefined}
+                      ref={(element) => setActiveVideoRef(element, index === activeIndex)}
                       className="stage-video"
                       src={slide.image}
-                      muted={activatedVideoId !== slide.id}
+                      muted={audioMode !== 'sound'}
                       autoPlay={index === activeIndex}
                       playsInline
                       onEnded={goToNextSlide}
@@ -438,9 +453,27 @@ export default function App() {
               </div>
             ))}
             <div className="image-overlay" />
+            {showClock ? <div className="clock-corner-gradient" aria-hidden="true" /> : null}
             {showPausedBadge ? <div className="playback-badge">{playbackBadgeText}</div> : null}
             <div className="image-caption">
-              <div className="image-title">{activeSlide.title}</div>
+              <div className="image-title-wrap">
+                <div className="image-title-shell">
+                  <button
+                    type="button"
+                    className="audio-toggle-button audio-toggle-button-inline"
+                    onClick={toggleAudioMode}
+                    aria-label={audioButtonLabel}
+                    aria-pressed={isAudioEnabled}
+                    title={audioButtonLabel}
+                  >
+                    <span className="audio-toggle-glyph" aria-hidden="true">
+                      <span className="audio-toggle-speaker" />
+                      {!isAudioEnabled ? <span className="audio-toggle-mute-slash" /> : null}
+                    </span>
+                  </button>
+                  <div className="image-title">{activeSlide.title}</div>
+                </div>
+              </div>
               {hasAnnotation ? <div className="image-annotation">{activeSlide.annotation}</div> : null}
             </div>
             {showClock ? (
@@ -449,7 +482,7 @@ export default function App() {
                   <span
                     key={number}
                     className="clock-number"
-                    style={{ transform: `translate(-50%, -50%) rotate(${number * 30}deg) translateY(-56px) rotate(-${number * 30}deg)` }}
+                    style={{ transform: `translate(-50%, -50%) rotate(${number * 30}deg) translateY(-78px) rotate(-${number * 30}deg)` }}
                   >
                     {number}
                   </span>
