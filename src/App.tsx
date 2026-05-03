@@ -35,6 +35,13 @@ type Slide = {
   mediaType: 'image' | 'video';
 };
 
+type CalendarDay = {
+  key: string;
+  day: number;
+  isCurrentMonth: boolean;
+  isToday: boolean;
+};
+
 const demoSlides: DemoSlide[] = [
   {
     id: 'aurora',
@@ -71,6 +78,7 @@ const DEFAULT_GRADIENT_STRENGTH = 78;
 const DEFAULT_BOTTOM_RIGHT_RADIUS = 72;
 const DEFAULT_CLOCK_OFFSET_X = 26;
 const DEFAULT_CLOCK_OFFSET_Y = 22;
+const DEFAULT_SHOW_CALENDAR = true;
 const PATH_STORAGE_KEY = 'gallery-drift.eagle-library-path';
 const DURATION_STORAGE_KEY = 'gallery-drift.slide-duration-seconds';
 const CLOCK_STORAGE_KEY = 'gallery-drift.show-clock';
@@ -80,6 +88,7 @@ const GRADIENT_STRENGTH_STORAGE_KEY = 'gallery-drift.clock-gradient-strength';
 const BOTTOM_RIGHT_RADIUS_STORAGE_KEY = 'gallery-drift.bottom-right-radius';
 const CLOCK_OFFSET_X_STORAGE_KEY = 'gallery-drift.clock-offset-x';
 const CLOCK_OFFSET_Y_STORAGE_KEY = 'gallery-drift.clock-offset-y';
+const CALENDAR_STORAGE_KEY = 'gallery-drift.show-calendar';
 
 function clampDurationSeconds(value: number) {
   if (!Number.isFinite(value)) {
@@ -148,6 +157,30 @@ function buildSlides(images: EagleImage[]): Slide[] {
   );
 }
 
+function buildCalendarDays(date: Date): CalendarDay[] {
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const firstDayOfMonth = new Date(year, month, 1);
+  const dayOfWeek = firstDayOfMonth.getDay() === 0 ? 6 : firstDayOfMonth.getDay() - 1;
+  const firstVisibleDate = new Date(year, month, 1 - dayOfWeek);
+  const today = new Date();
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const current = new Date(firstVisibleDate);
+    current.setDate(firstVisibleDate.getDate() + index);
+
+    return {
+      key: `${current.getFullYear()}-${current.getMonth()}-${current.getDate()}`,
+      day: current.getDate(),
+      isCurrentMonth: current.getMonth() === month,
+      isToday:
+        current.getFullYear() === today.getFullYear() &&
+        current.getMonth() === today.getMonth() &&
+        current.getDate() === today.getDate()
+    };
+  });
+}
+
 export default function App() {
   const initialLibraryPath = localStorage.getItem(PATH_STORAGE_KEY) || DEFAULT_LIBRARY_PATH;
   const initialDurationSeconds = clampDurationSeconds(Number(localStorage.getItem(DURATION_STORAGE_KEY)) || DEFAULT_ROTATE_SECONDS);
@@ -158,6 +191,7 @@ export default function App() {
   const initialBottomRightRadius = clampBottomRightRadius(Number(localStorage.getItem(BOTTOM_RIGHT_RADIUS_STORAGE_KEY)) || DEFAULT_BOTTOM_RIGHT_RADIUS);
   const initialClockOffsetX = clampClockOffsetX(Number(localStorage.getItem(CLOCK_OFFSET_X_STORAGE_KEY)) || DEFAULT_CLOCK_OFFSET_X);
   const initialClockOffsetY = clampClockOffsetY(Number(localStorage.getItem(CLOCK_OFFSET_Y_STORAGE_KEY)) || DEFAULT_CLOCK_OFFSET_Y);
+  const initialShowCalendar = localStorage.getItem(CALENDAR_STORAGE_KEY);
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [slides, setSlides] = useState<Slide[]>(demoSlides);
@@ -180,11 +214,14 @@ export default function App() {
   const [bottomRightRadius, setBottomRightRadius] = useState(initialBottomRightRadius);
   const [clockOffsetX, setClockOffsetX] = useState(initialClockOffsetX);
   const [clockOffsetY, setClockOffsetY] = useState(initialClockOffsetY);
+  const [showCalendar, setShowCalendar] = useState(initialShowCalendar === null ? DEFAULT_SHOW_CALENDAR : initialShowCalendar === 'true');
   const [videoProgress, setVideoProgress] = useState(0);
   const [clockText, setClockText] = useState('');
+  const [currentDate, setCurrentDate] = useState(() => new Date());
   const [clockAngles, setClockAngles] = useState({ hour: 0, minute: 0 });
   const [draftSlideDurationSeconds, setDraftSlideDurationSeconds] = useState(String(initialDurationSeconds));
   const [draftShowClock, setDraftShowClock] = useState(initialShowClock === null ? DEFAULT_SHOW_CLOCK : initialShowClock === 'true');
+  const [draftShowCalendar, setDraftShowCalendar] = useState(initialShowCalendar === null ? DEFAULT_SHOW_CALENDAR : initialShowCalendar === 'true');
   const [draftGradientSize, setDraftGradientSize] = useState(String(initialGradientSize));
   const [draftGradientStrength, setDraftGradientStrength] = useState(String(initialGradientStrength));
   const [draftBottomRightRadius, setDraftBottomRightRadius] = useState(String(initialBottomRightRadius));
@@ -258,6 +295,7 @@ export default function App() {
       const hours = now.getHours() % 12;
       const minutes = now.getMinutes();
       setClockText(formatter.format(now));
+      setCurrentDate(now);
       setClockAngles({
         hour: hours * 30 + minutes * 0.5,
         minute: minutes * 6
@@ -378,6 +416,7 @@ export default function App() {
       setDraftBottomRightRadius(String(bottomRightRadius));
       setDraftClockOffsetX(String(clockOffsetX));
       setDraftClockOffsetY(String(clockOffsetY));
+      setDraftShowCalendar(showCalendar);
       setDraftOpenAtLogin(openAtLogin);
       setSettingsMessage('请输入 Eagle 库路径，并设置显示细节。');
       setIsSettingsOpen(true);
@@ -395,6 +434,7 @@ export default function App() {
     gradientStrength,
     initialLibraryPath,
     openAtLogin,
+    showCalendar,
     showClock,
     slideDurationSeconds
   ]);
@@ -496,6 +536,25 @@ export default function App() {
   const isAudioEnabled = audioMode === 'sound';
   const audioButtonLabel = isAudioEnabled ? '关闭声音' : '打开声音';
   const clockNumbers = Array.from({ length: 12 }, (_, index) => index + 1);
+  const calendarDays = useMemo(() => buildCalendarDays(currentDate), [currentDate]);
+  const weekdayLabels = ['一', '二', '三', '四', '五', '六', '日'];
+  const monthTitle = useMemo(
+    () =>
+      new Intl.DateTimeFormat('zh-CN', {
+        year: 'numeric',
+        month: 'long'
+      }).format(currentDate),
+    [currentDate]
+  );
+  const dateBadge = useMemo(
+    () =>
+      new Intl.DateTimeFormat('zh-CN', {
+        month: '2-digit',
+        day: '2-digit',
+        weekday: 'short'
+      }).format(currentDate),
+    [currentDate]
+  );
 
   const progressStyle = useMemo(() => {
     if (isVideoActive) {
@@ -551,6 +610,7 @@ export default function App() {
     setBottomRightRadius(nextBottomRightRadius);
     setClockOffsetX(nextClockOffsetX);
     setClockOffsetY(nextClockOffsetY);
+    setShowCalendar(draftShowCalendar);
     setOpenAtLogin(draftOpenAtLogin);
     void window.galleryDrift?.setStartupSetting(draftOpenAtLogin);
     setLoadVersion((current) => current + 1);
@@ -562,6 +622,7 @@ export default function App() {
     localStorage.setItem(BOTTOM_RIGHT_RADIUS_STORAGE_KEY, String(nextBottomRightRadius));
     localStorage.setItem(CLOCK_OFFSET_X_STORAGE_KEY, String(nextClockOffsetX));
     localStorage.setItem(CLOCK_OFFSET_Y_STORAGE_KEY, String(nextClockOffsetY));
+    localStorage.setItem(CALENDAR_STORAGE_KEY, String(draftShowCalendar));
     setStatusText('设置已确认，正在重新加载整个库中的真实图片…');
     setIsSettingsOpen(false);
   };
@@ -571,6 +632,28 @@ export default function App() {
       <header className="titlebar" aria-hidden="true">
         <div className="titlebar-drag-region" />
       </header>
+
+      {showCalendar ? (
+        <aside id="calendar-panel" className="calendar-panel-glass" aria-label="当前日期日历">
+          <div className="calendar-month-title">{monthTitle}</div>
+          <div className="calendar-weekdays" aria-hidden="true">
+            {weekdayLabels.map((label) => (
+              <span key={label}>{label}</span>
+            ))}
+          </div>
+          <div className="calendar-grid">
+            {calendarDays.map((day) => (
+              <span
+                key={day.key}
+                className={`calendar-day ${day.isCurrentMonth ? '' : 'is-muted'} ${day.isToday ? 'is-today' : ''}`}
+                aria-current={day.isToday ? 'date' : undefined}
+              >
+                <span className="calendar-day-number">{day.day}</span>
+              </span>
+            ))}
+          </div>
+        </aside>
+      ) : null}
 
       <section className="content-panel no-annotation">
         <section className="gallery-panel">
@@ -714,6 +797,20 @@ export default function App() {
                   type="checkbox"
                   checked={draftShowClock}
                   onChange={(event) => setDraftShowClock(event.target.checked)}
+                />
+              </label>
+
+              <label className="settings-card toggle-card" htmlFor="show-calendar">
+                <div>
+                  <span className="settings-label">显示日历</span>
+                  <p className="settings-help">在右上角显示常驻日历。</p>
+                </div>
+                <input
+                  id="show-calendar"
+                  className="toggle-input"
+                  type="checkbox"
+                  checked={draftShowCalendar}
+                  onChange={(event) => setDraftShowCalendar(event.target.checked)}
                 />
               </label>
 
