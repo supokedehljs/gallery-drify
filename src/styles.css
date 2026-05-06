@@ -247,7 +247,7 @@ textarea,
 .calendar-day.is-today {
   border-color: rgba(255, 255, 255, 0.36);
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.12));
-  color: #f54e4e;
+  color: rgba(248, 250, 253, 0.95);
   box-shadow:
     0 10px 24px rgba(0, 0, 0, 0.24),
     inset 0 1px 0 rgba(255, 255, 255, 0.28);
