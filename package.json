@@ -9,7 +9,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "electron": "electron .",
-    "electron:dev": "set GALLERY_DRIFT_DEV=1&& electron ."
+    "electron:dev": "set GALLERY_DRIFT_DEV=1&& electron .",
+    "dist:win": "npm run build && electron-builder --win portable --config.directories.output=\"D:/OneDrive/cursor_workspace/gallery drift (打包软件)/v 1.0\""
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -20,7 +21,31 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.1",
     "electron": "^37.2.0",
+    "electron-builder": "^26.8.1",
     "typescript": "^5.6.3",
     "vite": "^5.4.10"
+  },
+  "build": {
+    "appId": "com.supokede.gallerydrift",
+    "productName": "Gallery Drift",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "index.html",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "electron/main.cjs"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    }
   }
 }
