@@ -216,6 +216,8 @@ export default function App() {
   const [clockOffsetY, setClockOffsetY] = useState(initialClockOffsetY);
   const [showCalendar, setShowCalendar] = useState(initialShowCalendar === null ? DEFAULT_SHOW_CALENDAR : initialShowCalendar === 'true');
   const [videoProgress, setVideoProgress] = useState(0);
+  const [mediaLoading, setMediaLoading] = useState(true);
+  const [mediaError, setMediaError] = useState(false);
   const [clockText, setClockText] = useState('');
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [clockAngles, setClockAngles] = useState({ hour: 0, minute: 0 });
@@ -235,6 +237,7 @@ export default function App() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const activeIndexRef = useRef(activeIndex);
   const slidesRef = useRef(slides);
+  const mediaTimeoutRef = useRef<number | null>(null);
 
   const setActiveVideoRef = (element: HTMLVideoElement | null, isActive: boolean) => {
     if (isActive) {
@@ -282,6 +285,35 @@ export default function App() {
   useEffect(() => {
     activeIndexRef.current = activeIndex;
     slidesRef.current = slides;
+  }, [activeIndex, slides]);
+
+  useEffect(() => {
+    const currentSlide = slides[activeIndex] ?? demoSlides[0];
+    if (!currentSlide) {
+      return;
+    }
+
+    setMediaLoading(true);
+    setMediaError(false);
+
+    if (mediaTimeoutRef.current) {
+      window.clearTimeout(mediaTimeoutRef.current);
+    }
+
+    const timeoutMs = currentSlide.mediaType === 'video' ? 15000 : 10000;
+    mediaTimeoutRef.current = window.setTimeout(() => {
+      if (mediaLoading) {
+        setMediaError(true);
+        setMediaLoading(false);
+        setTimeout(() => goToNextSlide(), 500);
+      }
+    }, timeoutMs);
+
+    return () => {
+      if (mediaTimeoutRef.current) {
+        window.clearTimeout(mediaTimeoutRef.current);
+      }
+    };
   }, [activeIndex, slides]);
 
   useEffect(() => {
@@ -669,6 +701,17 @@ export default function App() {
                       loop
                       autoPlay={index === activeIndex}
                       playsInline
+                      onCanPlay={() => {
+                        if (index === activeIndex) {
+                          setMediaLoading(false);
+                        }
+                      }}
+                      onError={() => {
+                        if (index === activeIndex) {
+                          setMediaError(true);
+                          setMediaLoading(false);
+                        }
+                      }}
                     />
                     <video
                       ref={(element) => setActiveVideoRef(element, index === activeIndex)}
@@ -678,17 +721,58 @@ export default function App() {
                       autoPlay={index === activeIndex}
                       playsInline
                       onEnded={goToNextSlide}
+                      onCanPlay={() => {
+                        if (index === activeIndex) {
+                          setMediaLoading(false);
+                        }
+                      }}
+                      onError={() => {
+                        if (index === activeIndex) {
+                          setMediaError(true);
+                          setMediaLoading(false);
+                        }
+                      }}
                     />
                   </>
                 ) : (
                   <>
-                    <div className="stage-backdrop" style={{ backgroundImage: `url(${slide.image})` }} />
-                    <div className="stage-image" style={{ backgroundImage: `url(${slide.image})` }} />
+                    <div 
+                      className="stage-backdrop" 
+                      style={{ backgroundImage: `url(${slide.image})` }}
+                      onLoad={() => {
+                        if (index === activeIndex) {
+                          setMediaLoading(false);
+                        }
+                      }}
+                      onError={() => {
+                        if (index === activeIndex) {
+                          setMediaError(true);
+                          setMediaLoading(false);
+                        }
+                      }}
+                    />
+                    <div 
+                      className="stage-image" 
+                      style={{ backgroundImage: `url(${slide.image})` }}
+                      onLoad={() => {
+                        if (index === activeIndex) {
+                          setMediaLoading(false);
+                        }
+                      }}
+                      onError={() => {
+                        if (index === activeIndex) {
+                          setMediaError(true);
+                          setMediaLoading(false);
+                        }
+                      }}
+                    />
                   </>
                 )}
               </div>
             ))}
             <div className="image-overlay" />
+            {mediaLoading ? <div className="loading-indicator" /> : null}
+            {mediaError ? <div className="error-badge">加载失败</div> : null}
             {showPausedBadge ? <div className="playback-badge">{playbackBadgeText}</div> : null}
             <div className="image-caption">
               <div className="image-title-wrap">
