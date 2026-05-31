@@ -195,8 +195,6 @@ export default function App() {
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [slides, setSlides] = useState<Slide[]>(demoSlides);
-  const [isPaused, setIsPaused] = useState(false);
-  const [isVideoHold, setIsVideoHold] = useState(false);
   const [lastLibrarySignature, setLastLibrarySignature] = useState('');
   const [statusText, setStatusText] = useState('右键打开菜单，选择“设置”后输入 Eagle 库路径。');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -268,9 +266,44 @@ export default function App() {
     setActiveIndex((current) => (current - 1 + slides.length) % slides.length);
   };
 
+  const clearMediaTimeout = () => {
+    if (mediaTimeoutRef.current) {
+      window.clearTimeout(mediaTimeoutRef.current);
+      mediaTimeoutRef.current = null;
+    }
+  };
+
+  const markActiveMediaReady = (index: number) => {
+    if (index !== activeIndexRef.current) {
+      return;
+    }
+
+    clearMediaTimeout();
+    setMediaLoading(false);
+    setMediaError(false);
+  };
+
+  const markActiveMediaError = (index: number) => {
+    if (index !== activeIndexRef.current) {
+      return;
+    }
+
+    clearMediaTimeout();
+    setMediaError(true);
+    setMediaLoading(false);
+  };
+
+  const handleActiveVideoEnded = (index: number) => {
+    if (index !== activeIndexRef.current) {
+      return;
+    }
+
+    goToNextSlide();
+  };
+
   useEffect(() => {
     const activeSlide = slides[activeIndex];
-    if (isPaused || !activeSlide || activeSlide.mediaType === 'video') {
+    if (!activeSlide || activeSlide.mediaType === 'video') {
       return;
     }
 
@@ -279,7 +312,7 @@ export default function App() {
     }, rotateMs);
 
     return () => window.clearTimeout(timer);
-  }, [activeIndex, isPaused, rotateMs, slides]);
+  }, [activeIndex, rotateMs, slides]);
 
 
   useEffect(() => {
@@ -293,26 +326,56 @@ export default function App() {
       return;
     }
 
+    let isCancelled = false;
     setMediaLoading(true);
     setMediaError(false);
-
-    if (mediaTimeoutRef.current) {
-      window.clearTimeout(mediaTimeoutRef.current);
-    }
+    clearMediaTimeout();
 
     const timeoutMs = currentSlide.mediaType === 'video' ? 15000 : 10000;
     mediaTimeoutRef.current = window.setTimeout(() => {
-      if (mediaLoading) {
-        setMediaError(true);
-        setMediaLoading(false);
-        setTimeout(() => goToNextSlide(), 500);
+      if (isCancelled) {
+        return;
+      }
+
+      setMediaError(true);
+      setMediaLoading(false);
+
+      if (currentSlide.mediaType !== 'video') {
+        window.setTimeout(() => {
+          if (!isCancelled) {
+            goToNextSlide();
+          }
+        }, 500);
       }
     }, timeoutMs);
 
+    if (currentSlide.mediaType === 'image') {
+      const image = new Image();
+      image.onload = () => {
+        if (!isCancelled) {
+          clearMediaTimeout();
+          setMediaLoading(false);
+          setMediaError(false);
+        }
+      };
+      image.onerror = () => {
+        if (!isCancelled) {
+          clearMediaTimeout();
+          setMediaError(true);
+          setMediaLoading(false);
+          window.setTimeout(() => {
+            if (!isCancelled) {
+              goToNextSlide();
+            }
+          }, 500);
+        }
+      };
+      image.src = currentSlide.image;
+    }
+
     return () => {
-      if (mediaTimeoutRef.current) {
-        window.clearTimeout(mediaTimeoutRef.current);
-      }
+      isCancelled = true;
+      clearMediaTimeout();
     };
   }, [activeIndex, slides]);
 
@@ -360,13 +423,6 @@ export default function App() {
       } else if (key === 'd') {
         event.preventDefault();
         goToNextSlide();
-      } else if (key === 's') {
-        event.preventDefault();
-        if ((slides[activeIndex] ?? demoSlides[0]).mediaType === 'video') {
-          setIsVideoHold((current) => !current);
-        } else {
-          setIsPaused((current) => !current);
-        }
       } else if (key === 'delete') {
         event.preventDefault();
         const currentSlide = slides[activeIndex] ?? demoSlides[0];
@@ -391,10 +447,13 @@ export default function App() {
       return;
     }
 
-    video.loop = isVideoHold;
+    video.loop = false;
     video.muted = audioMode !== 'sound';
+    video.pause();
+    video.currentTime = 0;
+    setVideoProgress(0);
     void video.play().catch(() => undefined);
-  }, [activeIndex, audioMode, isVideoHold, slides]);
+  }, [activeIndex, audioMode, slides]);
 
   useEffect(() => {
     const currentSlide = slides[activeIndex] ?? demoSlides[0];
@@ -410,6 +469,10 @@ export default function App() {
     }
 
     const updateProgress = () => {
+      if (!videoRef.current || videoRef.current !== video) {
+        return;
+      }
+
       if (!Number.isFinite(video.duration) || video.duration <= 0) {
         setVideoProgress(0);
         return;
@@ -418,25 +481,25 @@ export default function App() {
       setVideoProgress(Math.min(1, Math.max(0, video.currentTime / video.duration)));
     };
 
+    const markEndedProgress = () => {
+      if (videoRef.current === video) {
+        setVideoProgress(1);
+      }
+    };
+
     updateProgress();
     video.addEventListener('timeupdate', updateProgress);
     video.addEventListener('loadedmetadata', updateProgress);
     video.addEventListener('seeked', updateProgress);
-    video.addEventListener('ended', () => setVideoProgress(1), { once: true });
+    video.addEventListener('ended', markEndedProgress, { once: true });
 
     return () => {
       video.removeEventListener('timeupdate', updateProgress);
       video.removeEventListener('loadedmetadata', updateProgress);
       video.removeEventListener('seeked', updateProgress);
+      video.removeEventListener('ended', markEndedProgress);
     };
   }, [activeIndex, slides]);
-
-  useEffect(() => {
-    const currentSlide = slides[activeIndex] ?? demoSlides[0];
-    if (currentSlide.mediaType !== 'video' && isVideoHold) {
-      setIsVideoHold(false);
-    }
-  }, [activeIndex, isVideoHold, slides]);
 
   useEffect(() => {
     const dispose = window.galleryDrift?.onOpenSettings(() => {
@@ -563,8 +626,6 @@ export default function App() {
   const activeSlide = slides[activeIndex] ?? demoSlides[0];
   const hasAnnotation = Boolean(activeSlide.annotation.trim());
   const isVideoActive = activeSlide.mediaType === 'video';
-  const showPausedBadge = isVideoActive ? isVideoHold : isPaused;
-  const playbackBadgeText = '∞';
   const isAudioEnabled = audioMode === 'sound';
   const audioButtonLabel = isAudioEnabled ? '关闭声音' : '打开声音';
   const clockNumbers = Array.from({ length: 12 }, (_, index) => index + 1);
@@ -701,17 +762,8 @@ export default function App() {
                       loop
                       autoPlay={index === activeIndex}
                       playsInline
-                      onCanPlay={() => {
-                        if (index === activeIndex) {
-                          setMediaLoading(false);
-                        }
-                      }}
-                      onError={() => {
-                        if (index === activeIndex) {
-                          setMediaError(true);
-                          setMediaLoading(false);
-                        }
-                      }}
+                      onCanPlay={() => markActiveMediaReady(index)}
+                      onError={() => markActiveMediaError(index)}
                     />
                     <video
                       ref={(element) => setActiveVideoRef(element, index === activeIndex)}
@@ -720,18 +772,9 @@ export default function App() {
                       muted={audioMode !== 'sound'}
                       autoPlay={index === activeIndex}
                       playsInline
-                      onEnded={goToNextSlide}
-                      onCanPlay={() => {
-                        if (index === activeIndex) {
-                          setMediaLoading(false);
-                        }
-                      }}
-                      onError={() => {
-                        if (index === activeIndex) {
-                          setMediaError(true);
-                          setMediaLoading(false);
-                        }
-                      }}
+                      onEnded={() => handleActiveVideoEnded(index)}
+                      onCanPlay={() => markActiveMediaReady(index)}
+                      onError={() => markActiveMediaError(index)}
                     />
                   </>
                 ) : (
@@ -739,32 +782,10 @@ export default function App() {
                     <div 
                       className="stage-backdrop" 
                       style={{ backgroundImage: `url(${slide.image})` }}
-                      onLoad={() => {
-                        if (index === activeIndex) {
-                          setMediaLoading(false);
-                        }
-                      }}
-                      onError={() => {
-                        if (index === activeIndex) {
-                          setMediaError(true);
-                          setMediaLoading(false);
-                        }
-                      }}
                     />
                     <div 
                       className="stage-image" 
                       style={{ backgroundImage: `url(${slide.image})` }}
-                      onLoad={() => {
-                        if (index === activeIndex) {
-                          setMediaLoading(false);
-                        }
-                      }}
-                      onError={() => {
-                        if (index === activeIndex) {
-                          setMediaError(true);
-                          setMediaLoading(false);
-                        }
-                      }}
                     />
                   </>
                 )}
@@ -773,7 +794,6 @@ export default function App() {
             <div className="image-overlay" />
             {mediaLoading ? <div className="loading-indicator" /> : null}
             {mediaError ? <div className="error-badge">加载失败</div> : null}
-            {showPausedBadge ? <div className="playback-badge">{playbackBadgeText}</div> : null}
             <div className="image-caption">
               <div className="image-title-wrap">
                 <div className="image-title-shell">
