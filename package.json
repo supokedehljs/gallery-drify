@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "electron": "electron .",
     "electron:dev": "set GALLERY_DRIFT_DEV=1&& electron .",
-    "dist:win": "npm run build && electron-builder --win portable --config.directories.output=\"D:/OneDrive/cursor_workspace/gallery drift (打包软件)/v 1.0\""
+    "dist:win": "npm run build && electron-builder --win portable --config.directories.output=\"D:/OneDrive/cursor_workspace/rcjj-幻灯片\""
   },
   "dependencies": {
     "react": "^18.3.1",
