@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 
 type AudioMode = 'muted' | 'sound';
 
@@ -69,7 +69,7 @@ const demoSlides: DemoSlide[] = [
   }
 ];
 
-const AUTO_REFRESH_MS = 15000;
+const AUTO_REFRESH_MS = 60000;
 const DEFAULT_LIBRARY_PATH = 'D:\\OneDrive\\参考\\李杰.library';
 const DEFAULT_ROTATE_SECONDS = 8;
 const DEFAULT_SHOW_CLOCK = true;
@@ -195,6 +195,7 @@ export default function App() {
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [slides, setSlides] = useState<Slide[]>(demoSlides);
+  const [isPaused, setIsPaused] = useState(false);
   const [lastLibrarySignature, setLastLibrarySignature] = useState('');
   const [statusText, setStatusText] = useState('右键打开菜单，选择“设置”后输入 Eagle 库路径。');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -213,8 +214,7 @@ export default function App() {
   const [clockOffsetX, setClockOffsetX] = useState(initialClockOffsetX);
   const [clockOffsetY, setClockOffsetY] = useState(initialClockOffsetY);
   const [showCalendar, setShowCalendar] = useState(initialShowCalendar === null ? DEFAULT_SHOW_CALENDAR : initialShowCalendar === 'true');
-  const [videoProgress, setVideoProgress] = useState(0);
-  const [mediaLoading, setMediaLoading] = useState(true);
+  const [mediaLoading, setMediaLoading] = useState(false);
   const [mediaError, setMediaError] = useState(false);
   const [clockText, setClockText] = useState('');
   const [currentDate, setCurrentDate] = useState(() => new Date());
@@ -233,20 +233,22 @@ export default function App() {
   const [settingsMessage, setSettingsMessage] = useState('请输入 Eagle 库路径，确认后将轮播整个库中的图片。');
   const rotateMs = slideDurationSeconds * 1000;
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const progressBarRef = useRef<HTMLDivElement | null>(null);
   const activeIndexRef = useRef(activeIndex);
   const slidesRef = useRef(slides);
+  const imageProgressRef = useRef(0);
+  const videoProgressRef = useRef(0);
+  const isPausedRef = useRef(isPaused);
   const mediaTimeoutRef = useRef<number | null>(null);
 
-  const setActiveVideoRef = (element: HTMLVideoElement | null, isActive: boolean) => {
-    if (isActive) {
-      videoRef.current = element;
-      return;
-    }
+  const setActiveVideoRef = (element: HTMLVideoElement | null) => {
+    videoRef.current = element;
+  };
 
-    if (element) {
-      element.pause();
-      element.currentTime = 0;
-      element.muted = true;
+  const updateProgressBar = (progress: number) => {
+    const clampedProgress = Math.min(1, Math.max(0, progress));
+    if (progressBarRef.current) {
+      progressBarRef.current.style.transform = `scaleX(${clampedProgress})`;
     }
   };
 
@@ -294,11 +296,49 @@ export default function App() {
   };
 
   const handleActiveVideoEnded = (index: number) => {
-    if (index !== activeIndexRef.current) {
+    if (index !== activeIndexRef.current || isPausedRef.current) {
       return;
     }
 
     goToNextSlide();
+  };
+
+  const seekActiveVideo = (clientX: number, element: HTMLElement) => {
+    const video = videoRef.current;
+    const rect = element.getBoundingClientRect();
+    if (!video || rect.width <= 0 || !Number.isFinite(video.duration) || video.duration <= 0) {
+      return;
+    }
+
+    const progress = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    video.currentTime = progress * video.duration;
+    videoProgressRef.current = progress;
+    updateProgressBar(progress);
+  };
+
+  const handleProgressPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (!isVideoActive) {
+      return;
+    }
+
+    event.preventDefault();
+    const progressElement = event.currentTarget;
+    progressElement.setPointerCapture(event.pointerId);
+    seekActiveVideo(event.clientX, progressElement);
+  };
+
+  const handleProgressPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (!isVideoActive || !event.currentTarget.hasPointerCapture(event.pointerId)) {
+      return;
+    }
+
+    seekActiveVideo(event.clientX, event.currentTarget);
+  };
+
+  const handleProgressPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
   };
 
   useEffect(() => {
@@ -307,10 +347,43 @@ export default function App() {
       return;
     }
 
-    const timer = window.setTimeout(() => {
-      goToNextSlide();
-    }, rotateMs);
+    imageProgressRef.current = 0;
+    updateProgressBar(0);
+    let timer = 0;
+    let startTime = window.performance.now();
+    let pausedAt = 0;
 
+    const scheduleNextFrame = () => {
+      timer = window.setTimeout(tick, 100);
+    };
+
+    const tick = () => {
+      if (isPausedRef.current) {
+        if (pausedAt === 0) {
+          pausedAt = window.performance.now();
+        }
+        scheduleNextFrame();
+        return;
+      }
+
+      if (pausedAt > 0) {
+        startTime += window.performance.now() - pausedAt;
+        pausedAt = 0;
+      }
+
+      const nextProgress = Math.min(1, (window.performance.now() - startTime) / rotateMs);
+      imageProgressRef.current = nextProgress;
+      updateProgressBar(nextProgress);
+
+      if (nextProgress >= 1) {
+        goToNextSlide();
+        return;
+      }
+
+      scheduleNextFrame();
+    };
+
+    scheduleNextFrame();
     return () => window.clearTimeout(timer);
   }, [activeIndex, rotateMs, slides]);
 
@@ -319,6 +392,10 @@ export default function App() {
     activeIndexRef.current = activeIndex;
     slidesRef.current = slides;
   }, [activeIndex, slides]);
+
+  useEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
 
   useEffect(() => {
     const currentSlide = slides[activeIndex] ?? demoSlides[0];
@@ -398,7 +475,7 @@ export default function App() {
     };
 
     updateClock();
-    const timer = window.setInterval(updateClock, 10000);
+    const timer = window.setInterval(updateClock, 60000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -417,11 +494,16 @@ export default function App() {
       }
 
       const key = event.key.toLowerCase();
-      if (key === 'a') {
+      if (key === ' ') {
         event.preventDefault();
+        setIsPaused((current) => !current);
+      } else if (key === 'a') {
+        event.preventDefault();
+        setIsPaused(false);
         goToPreviousSlide();
       } else if (key === 'd') {
         event.preventDefault();
+        setIsPaused(false);
         goToNextSlide();
       } else if (key === 'delete') {
         event.preventDefault();
@@ -430,6 +512,7 @@ export default function App() {
           return;
         }
 
+        setIsPaused(false);
         void window.galleryDrift?.deleteItem(appliedLibraryPath, currentSlide.id).then(() => {
           setLoadVersion((current) => current + 1);
         });
@@ -451,20 +534,39 @@ export default function App() {
     video.muted = audioMode !== 'sound';
     video.pause();
     video.currentTime = 0;
-    setVideoProgress(0);
-    void video.play().catch(() => undefined);
+    videoProgressRef.current = 0;
+    updateProgressBar(0);
+
+    if (!isPausedRef.current) {
+      void video.play().catch(() => undefined);
+    }
   }, [activeIndex, audioMode, slides]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    const currentSlide = slides[activeIndex] ?? demoSlides[0];
+    if (!video || currentSlide.mediaType !== 'video') {
+      return;
+    }
+
+    if (isPaused) {
+      video.pause();
+      return;
+    }
+
+    void video.play().catch(() => undefined);
+  }, [isPaused, activeIndex, slides]);
 
   useEffect(() => {
     const currentSlide = slides[activeIndex] ?? demoSlides[0];
     if (currentSlide.mediaType !== 'video') {
-      setVideoProgress(0);
+      updateProgressBar(0);
       return;
     }
 
     const video = videoRef.current;
     if (!video) {
-      setVideoProgress(0);
+      updateProgressBar(0);
       return;
     }
 
@@ -474,16 +576,19 @@ export default function App() {
       }
 
       if (!Number.isFinite(video.duration) || video.duration <= 0) {
-        setVideoProgress(0);
+        updateProgressBar(0);
         return;
       }
 
-      setVideoProgress(Math.min(1, Math.max(0, video.currentTime / video.duration)));
+      const progress = Math.min(1, Math.max(0, video.currentTime / video.duration));
+      videoProgressRef.current = progress;
+      updateProgressBar(progress);
     };
 
     const markEndedProgress = () => {
       if (videoRef.current === video) {
-        setVideoProgress(1);
+        videoProgressRef.current = 1;
+        updateProgressBar(1);
       }
     };
 
@@ -649,19 +754,6 @@ export default function App() {
     [currentDate]
   );
 
-  const progressStyle = useMemo(() => {
-    if (isVideoActive) {
-      return {
-        transform: `scaleX(${videoProgress})`,
-        animation: 'none'
-      };
-    }
-
-    return {
-      animationDuration: `${rotateMs}ms`
-    };
-  }, [isVideoActive, rotateMs, videoProgress]);
-
   const frameStyle = useMemo(
     () => ({
       borderBottomRightRadius: `${bottomRightRadius}px`
@@ -696,6 +788,7 @@ export default function App() {
     const nextClockOffsetY = clampClockOffsetY(Number(draftClockOffsetY));
 
     setAppliedLibraryPath(nextPath);
+    setIsPaused(false);
     setSlideDurationSeconds(nextDurationSeconds);
     setShowClock(draftShowClock);
     setGradientSize(nextGradientSize);
@@ -751,49 +844,37 @@ export default function App() {
       <section className="content-panel no-annotation">
         <section className="gallery-panel">
           <div className="image-frame" style={frameStyle}>
-            {slides.map((slide, index) => (
-              <div key={slide.id} className={`slide-layer ${index === activeIndex ? 'is-active' : ''}`}>
-                {slide.mediaType === 'video' ? (
-                  <>
-                    <video
-                      className="stage-backdrop-video"
-                      src={slide.image}
-                      muted
-                      loop
-                      autoPlay={index === activeIndex}
-                      playsInline
-                      onCanPlay={() => markActiveMediaReady(index)}
-                      onError={() => markActiveMediaError(index)}
-                    />
-                    <video
-                      ref={(element) => setActiveVideoRef(element, index === activeIndex)}
-                      className="stage-video"
-                      src={slide.image}
-                      muted={audioMode !== 'sound'}
-                      autoPlay={index === activeIndex}
-                      playsInline
-                      onEnded={() => handleActiveVideoEnded(index)}
-                      onCanPlay={() => markActiveMediaReady(index)}
-                      onError={() => markActiveMediaError(index)}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <div 
-                      className="stage-backdrop" 
-                      style={{ backgroundImage: `url(${slide.image})` }}
-                    />
-                    <div 
-                      className="stage-image" 
-                      style={{ backgroundImage: `url(${slide.image})` }}
-                    />
-                  </>
-                )}
-              </div>
-            ))}
+            <div className="slide-layer is-active">
+              {activeSlide.mediaType === 'video' ? (
+                <video
+                  key={activeSlide.id}
+                  ref={setActiveVideoRef}
+                  className="stage-video"
+                  src={activeSlide.image}
+                  muted={audioMode !== 'sound'}
+                  autoPlay={!isPaused}
+                  playsInline
+                  onEnded={() => handleActiveVideoEnded(activeIndex)}
+                  onCanPlay={() => markActiveMediaReady(activeIndex)}
+                  onError={() => markActiveMediaError(activeIndex)}
+                />
+              ) : (
+                <>
+                  <div 
+                    className="stage-backdrop" 
+                    style={{ backgroundImage: `url(${activeSlide.image})` }}
+                  />
+                  <div 
+                    className="stage-image" 
+                    style={{ backgroundImage: `url(${activeSlide.image})` }}
+                  />
+                </>
+              )}
+            </div>
             <div className="image-overlay" />
             {mediaLoading ? <div className="loading-indicator" /> : null}
             {mediaError ? <div className="error-badge">加载失败</div> : null}
+            {isPaused ? <div className="playback-badge" aria-label="已暂停"><span className="pause-icon" /></div> : null}
             <div className="image-caption">
               <div className="image-title-wrap">
                 <div className="image-title-shell">
@@ -835,8 +916,15 @@ export default function App() {
         </section>
       </section>
 
-      <div className="bottom-progress" aria-hidden="true">
-        <div key={`${activeSlide.id}-${isVideoActive ? 'video' : 'image'}`} className={`bottom-progress-bar ${isVideoActive ? 'is-video-progress' : ''}`} style={progressStyle} />
+      <div
+        className={`bottom-progress ${isVideoActive ? 'is-video-seekable' : ''}`}
+        aria-hidden={!isVideoActive}
+        onPointerDown={handleProgressPointerDown}
+        onPointerMove={handleProgressPointerMove}
+        onPointerUp={handleProgressPointerUp}
+        onPointerCancel={handleProgressPointerUp}
+      >
+        <div ref={progressBarRef} key={`${activeSlide.id}-${isVideoActive ? 'video' : 'image'}`} className={`bottom-progress-bar ${isVideoActive ? 'is-video-progress' : ''}`} />
       </div>
 
       {isSettingsOpen ? (

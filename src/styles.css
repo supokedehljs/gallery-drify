@@ -450,6 +450,32 @@ textarea,
   pointer-events: none;
 }
 
+.pause-icon {
+  position: relative;
+  display: inline-block;
+  width: 14px;
+  height: 16px;
+}
+
+.pause-icon::before,
+.pause-icon::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  width: 5px;
+  height: 16px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.pause-icon::before {
+  left: 1px;
+}
+
+.pause-icon::after {
+  right: 1px;
+}
+
 .loading-indicator {
   position: absolute;
   top: 24px;
@@ -629,6 +655,27 @@ textarea,
   opacity: 0.62;
   background: rgba(255, 255, 255, 0.08);
   pointer-events: none;
+}
+
+.bottom-progress.is-video-seekable {
+  height: 6px;
+  bottom: 2px;
+  overflow: visible;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.bottom-progress.is-video-seekable::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  right: 0;
+  bottom: -8px;
+  left: 0;
+}
+
+.bottom-progress.is-video-seekable:hover {
+  opacity: 0.86;
 }
 
 .bottom-progress-bar {
